@@ -1,25 +1,44 @@
-import logo from './logo.svg';
+import React, { useCallback, useEffect, useState } from 'react';
+import HomePage from './HomePage';
+import TokenExchangePage from './TokenExchangePage';
+import { AuthProvider } from './context';
 import './App.css';
 
-function App() {
-  return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
-    </div>
-  );
+function useSimpleRouter() {
+  const [path, setPath] = useState(() => window.location.pathname);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      setPath(window.location.pathname);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  const navigate = useCallback((nextPath) => {
+    if (nextPath === window.location.pathname) {
+      return;
+    }
+    window.history.pushState(null, '', nextPath);
+    setPath(nextPath);
+  }, []);
+
+  return { path, navigate };
 }
 
-export default App;
+export default function App() {
+  const router = useSimpleRouter();
+
+  const renderPage = () => {
+    if (router.path === '/cookie') {
+      return <TokenExchangePage navigate={router.navigate} />;
+    }
+    return <HomePage navigate={router.navigate} />;
+  };
+
+  return (
+    <AuthProvider>
+      {renderPage()}
+    </AuthProvider>
+  );
+}
