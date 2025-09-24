@@ -1,8 +1,8 @@
 import { render, screen } from '@testing-library/react';
 import App from './App';
 
-test('renders learn react link', () => {
+test('renders landing page title and login buttons', () => {
   render(<App />);
-  const linkElement = screen.getByText(/learn react/i);
-  expect(linkElement).toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: /FestaPick 연동 데모/i })).toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: /소셜 로그인/i })).toBeInTheDocument();
 });
