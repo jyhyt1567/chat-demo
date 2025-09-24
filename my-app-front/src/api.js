@@ -63,13 +63,8 @@ export async function getOrCreateChatRoom({ festivalId, accessToken }) {
   }
 
   const data = await handleJsonResponse(response);
-  if (data?.data !== undefined) {
-    return data.data;
-  }
-  if (data?.result !== undefined) {
-    return data.result;
-  }
-  return data;
+
+  return Number(data.content);
 }
 
 export async function fetchMessages({ chatRoomId, page = 0, size = 30, accessToken }) {
@@ -88,11 +83,5 @@ export async function fetchMessages({ chatRoomId, page = 0, size = 30, accessTok
   }
 
   const data = await handleJsonResponse(response);
-  if (Array.isArray(data)) {
-    return data;
-  }
-  if (data?.data) {
-    return data.data;
-  }
-  return [];
+  return data.content;
 }
