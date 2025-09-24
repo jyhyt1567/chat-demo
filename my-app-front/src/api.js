@@ -49,7 +49,7 @@ export async function logout(accessToken) {
 }
 
 export async function getOrCreateChatRoom({ festivalId, accessToken }) {
-  const response = await fetch(`${BACKEND_BASE_URL}/api/festivals/${festivalId}/messages`, {
+  const response = await fetch(`${BACKEND_BASE_URL}/api/festivals/${festivalId}/chatRooms`, {
     method: 'POST',
     credentials: 'include',
     headers: {
@@ -69,7 +69,7 @@ export async function getOrCreateChatRoom({ festivalId, accessToken }) {
 
 export async function fetchMessages({ chatRoomId, page = 0, size = 30, accessToken }) {
   const params = new URLSearchParams({ page: String(page), size: String(size) });
-  const response = await fetch(`${BACKEND_BASE_URL}/api/messages/${chatRoomId}?${params.toString()}`, {
+  const response = await fetch(`${BACKEND_BASE_URL}/api/chatRooms/${chatRoomId}/messages?${params.toString()}`, {
     method: 'GET',
     credentials: 'include',
     headers: {
@@ -84,4 +84,23 @@ export async function fetchMessages({ chatRoomId, page = 0, size = 30, accessTok
 
   const data = await handleJsonResponse(response);
   return data.content;
+}
+
+export async function fetchChatRooms({ page = 0, size = 15, accessToken }) {
+  const params = new URLSearchParams({ page: String(page), size: String(size) });
+  const response = await fetch(`${BACKEND_BASE_URL}/api/chatRooms?${params.toString()}`, {
+    method: 'GET',
+    credentials: 'include',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!response.ok) {
+    const errorBody = await handleJsonResponse(response);
+    throw new Error(errorBody?.message || '채팅방 목록 조회에 실패했습니다.');
+  }
+
+  const data = await handleJsonResponse(response);
+  return data;
 }
