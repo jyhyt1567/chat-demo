@@ -335,6 +335,53 @@ textarea {
   word-break: break-all;
 }
 
+.room-token-panel {
+  margin-top: 1.5rem;
+  padding: 1.25rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background-color: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.room-token-panel__header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.room-token-panel__header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.room-token-panel__description {
+  margin: 0;
+  color: #4f5d75;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.room-token-panel__preview {
+  margin: 0;
+}
+
+.room-token-panel__actions {
+  justify-content: flex-start;
+}
+
+.room-token-panel__hint {
+  margin: 0;
+  color: #4338ca;
+  font-size: 0.85rem;
+}
+
+.room-token-editor textarea {
+  min-height: 120px;
+}
+
 .guide-list {
   margin: 0;
   padding-left: 1.5rem;
