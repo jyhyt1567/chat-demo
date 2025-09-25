@@ -67,8 +67,10 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
   const [chatRooms, setChatRooms] = useState([]);
   const [chatRoomsMessage, setChatRoomsMessage] = useState('');
   const [isLoadingChatRooms, setIsLoadingChatRooms] = useState(false);
+  const [errorPopup, setErrorPopup] = useState(null);
   const clientRef = useRef(null);
   const subscriptionRef = useRef(null);
+  const errorSubscriptionRef = useRef(null);
 
   const websocketUrl = useMemo(() => buildWebSocketUrl(), []);
 
@@ -139,6 +141,35 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
             console.warn('Failed to parse incoming message', error);
           }
         });
+        errorSubscriptionRef.current = client.subscribe('/user/queue/errors', (body) => {
+          try {
+            const payload = JSON.parse(body);
+            const fieldErrors = Array.isArray(payload?.fieldErrors)
+              ? payload.fieldErrors.flatMap((item) =>
+                  Object.entries(item || {}).map(([field, message]) => `${field}: ${message || 'Invalid value'}`),
+                )
+              : [];
+            const globalErrors = Array.isArray(payload?.globalErrors)
+              ? payload.globalErrors.flatMap((item) =>
+                  Object.entries(item || {}).map(([, message]) => message || 'Invalid value'),
+                )
+              : [];
+            const messagesToShow = [...globalErrors, ...fieldErrors];
+            setErrorPopup({
+              title: '메시지 전송에 실패했어요',
+              messages:
+                messagesToShow.length > 0
+                  ? messagesToShow
+                  : ['알 수 없는 오류가 발생했습니다. 다시 시도해주세요.'],
+            });
+          } catch (error) {
+            console.warn('Failed to parse validation error payload', error);
+            setErrorPopup({
+              title: '메시지 전송에 실패했어요',
+              messages: ['서버에서 전달된 오류 메시지를 처리하지 못했습니다. 잠시 후 다시 시도해주세요.'],
+            });
+          }
+        });
       },
       () => {
         setConnectionStatus('error');
@@ -150,9 +181,14 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
         client.unsubscribe(subscriptionRef.current);
         subscriptionRef.current = null;
       }
+      if (errorSubscriptionRef.current) {
+        client.unsubscribe(errorSubscriptionRef.current);
+        errorSubscriptionRef.current = null;
+      }
       client.disconnect();
       clientRef.current = null;
       setConnectionStatus('disconnected');
+      setErrorPopup(null);
     };
   }, [chatRoomId, accessToken, websocketUrl]);
 
@@ -161,6 +197,7 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
       return;
     }
 
+    setErrorPopup(null);
     setChatRoomId((prev) => {
       if (prev === roomId) {
         return prev;
@@ -227,19 +264,27 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
 
   const handleSendMessage = async (event) => {
     event.preventDefault();
-    if (!newMessage.trim() || !clientRef.current || !chatRoomId) {
+    if (!clientRef.current || !chatRoomId) {
       return;
     }
 
     try {
-      clientRef.current.send(`/pub/${chatRoomId}/messages`, JSON.stringify({ content: newMessage.trim() }), {
-        Authorization: `Bearer ${accessToken}`,
-      });
+      clientRef.current.send(
+        `/pub/${chatRoomId}/messages`,
+        JSON.stringify({ content: newMessage }),
+        {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      );
       setNewMessage('');
     } catch (error) {
       setStatusMessage('메시지 전송에 실패했습니다. 연결 상태를 확인해주세요.');
       console.error(error);
     }
+  };
+
+  const closeErrorPopup = () => {
+    setErrorPopup(null);
   };
 
   return (
@@ -309,7 +354,7 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
           placeholder="전송할 메시지를 입력하세요."
           disabled={connectionStatus !== 'connected'}
         />
-        <button type="submit" className="primary" disabled={connectionStatus !== 'connected' || !newMessage.trim()}>
+        <button type="submit" className="primary" disabled={connectionStatus !== 'connected'}>
           전송
         </button>
       </form>
@@ -326,6 +371,23 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
           </div>
         ))}
       </div>
+
+      {errorPopup && (
+        <div className="error-popup-backdrop" role="alertdialog" aria-modal="true">
+          <div className="error-popup">
+            <h3>{errorPopup.title}</h3>
+            <p>서버에서 다음과 같은 오류를 전달했습니다:</p>
+            <ul>
+              {errorPopup.messages.map((message, index) => (
+                <li key={`${message}-${index}`}>{message}</li>
+              ))}
+            </ul>
+            <button type="button" className="primary" onClick={closeErrorPopup}>
+              확인
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
