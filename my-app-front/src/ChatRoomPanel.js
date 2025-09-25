@@ -67,7 +67,7 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
   const [chatRooms, setChatRooms] = useState([]);
   const [chatRoomsMessage, setChatRoomsMessage] = useState('');
   const [isLoadingChatRooms, setIsLoadingChatRooms] = useState(false);
-  const [errorPopup, setErrorPopup] = useState(null);
+  const [validationWarningMessages, setValidationWarningMessages] = useState([]);
   const clientRef = useRef(null);
   const subscriptionRef = useRef(null);
   const errorSubscriptionRef = useRef(null);
@@ -155,19 +155,16 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
                 )
               : [];
             const messagesToShow = [...globalErrors, ...fieldErrors];
-            setErrorPopup({
-              title: '메시지 전송에 실패했어요',
-              messages:
-                messagesToShow.length > 0
-                  ? messagesToShow
-                  : ['알 수 없는 오류가 발생했습니다. 다시 시도해주세요.'],
-            });
+            setValidationWarningMessages(
+              messagesToShow.length > 0
+                ? messagesToShow
+                : ['알 수 없는 오류가 발생했습니다. 다시 시도해주세요.'],
+            );
           } catch (error) {
             console.warn('Failed to parse validation error payload', error);
-            setErrorPopup({
-              title: '메시지 전송에 실패했어요',
-              messages: ['서버에서 전달된 오류 메시지를 처리하지 못했습니다. 잠시 후 다시 시도해주세요.'],
-            });
+            setValidationWarningMessages([
+              '서버에서 전달된 오류 메시지를 처리하지 못했습니다. 잠시 후 다시 시도해주세요.',
+            ]);
           }
         });
       },
@@ -188,7 +185,7 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
       client.disconnect();
       clientRef.current = null;
       setConnectionStatus('disconnected');
-      setErrorPopup(null);
+      setValidationWarningMessages([]);
     };
   }, [chatRoomId, accessToken, websocketUrl]);
 
@@ -197,7 +194,7 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
       return;
     }
 
-    setErrorPopup(null);
+    setValidationWarningMessages([]);
     setChatRoomId((prev) => {
       if (prev === roomId) {
         return prev;
@@ -283,8 +280,8 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
     }
   };
 
-  const closeErrorPopup = () => {
-    setErrorPopup(null);
+  const dismissValidationWarning = () => {
+    setValidationWarningMessages([]);
   };
 
   return (
@@ -344,6 +341,28 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
 
       {statusMessage && <p className="status-message">{statusMessage}</p>}
 
+      {validationWarningMessages.length > 0 && (
+        <div className="validation-warning" role="alert" aria-live="assertive">
+          <div className="validation-warning__header">
+            <strong className="validation-warning__title">메시지 전송에 실패했어요</strong>
+            <button
+              type="button"
+              className="validation-warning__dismiss"
+              onClick={dismissValidationWarning}
+              aria-label="경고 닫기"
+            >
+              닫기
+            </button>
+          </div>
+          <p className="validation-warning__description">서버에서 다음과 같은 오류를 전달했습니다:</p>
+          <ul className="validation-warning__list">
+            {validationWarningMessages.map((message, index) => (
+              <li key={`${message}-${index}`}>{message}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <form className="form" onSubmit={handleSendMessage}>
         <label htmlFor="newMessage">메시지 보내기</label>
         <textarea
@@ -371,23 +390,6 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
           </div>
         ))}
       </div>
-
-      {errorPopup && (
-        <div className="error-popup-backdrop" role="alertdialog" aria-modal="true">
-          <div className="error-popup">
-            <h3>{errorPopup.title}</h3>
-            <p>서버에서 다음과 같은 오류를 전달했습니다:</p>
-            <ul>
-              {errorPopup.messages.map((message, index) => (
-                <li key={`${message}-${index}`}>{message}</li>
-              ))}
-            </ul>
-            <button type="button" className="primary" onClick={closeErrorPopup}>
-              확인
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
