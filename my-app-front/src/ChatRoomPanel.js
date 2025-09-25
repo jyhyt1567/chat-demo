@@ -67,7 +67,7 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
   const [chatRooms, setChatRooms] = useState([]);
   const [chatRoomsMessage, setChatRoomsMessage] = useState('');
   const [isLoadingChatRooms, setIsLoadingChatRooms] = useState(false);
-  const [validationWarningMessages, setValidationWarningMessages] = useState([]);
+  const [validationErrors, setValidationErrors] = useState(null);
   const clientRef = useRef(null);
   const subscriptionRef = useRef(null);
   const errorSubscriptionRef = useRef(null);
@@ -155,14 +155,14 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
                 )
               : [];
             const messagesToShow = [...globalErrors, ...fieldErrors];
-            setValidationWarningMessages(
+            setValidationErrors(
               messagesToShow.length > 0
                 ? messagesToShow
                 : ['알 수 없는 오류가 발생했습니다. 다시 시도해주세요.'],
             );
           } catch (error) {
             console.warn('Failed to parse validation error payload', error);
-            setValidationWarningMessages([
+            setValidationErrors([
               '서버에서 전달된 오류 메시지를 처리하지 못했습니다. 잠시 후 다시 시도해주세요.',
             ]);
           }
@@ -185,7 +185,7 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
       client.disconnect();
       clientRef.current = null;
       setConnectionStatus('disconnected');
-      setValidationWarningMessages([]);
+      setValidationErrors(null);
     };
   }, [chatRoomId, accessToken, websocketUrl]);
 
@@ -194,7 +194,7 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
       return;
     }
 
-    setValidationWarningMessages([]);
+    setValidationErrors(null);
     setChatRoomId((prev) => {
       if (prev === roomId) {
         return prev;
@@ -280,8 +280,8 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
     }
   };
 
-  const dismissValidationWarning = () => {
-    setValidationWarningMessages([]);
+  const dismissValidationModal = () => {
+    setValidationErrors(null);
   };
 
   return (
@@ -341,25 +341,33 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
 
       {statusMessage && <p className="status-message">{statusMessage}</p>}
 
-      {validationWarningMessages.length > 0 && (
-        <div className="validation-warning" role="alert" aria-live="assertive">
-          <div className="validation-warning__header">
-            <strong className="validation-warning__title">메시지 전송에 실패했어요</strong>
-            <button
-              type="button"
-              className="validation-warning__dismiss"
-              onClick={dismissValidationWarning}
-              aria-label="경고 닫기"
-            >
-              닫기
-            </button>
+      {Array.isArray(validationErrors) && validationErrors.length > 0 && (
+        <div className="validation-modal" role="alertdialog" aria-modal="true">
+          <div className="validation-modal__backdrop" />
+          <div className="validation-modal__dialog" role="document">
+            <div className="validation-modal__header">
+              <h3 className="validation-modal__title">메시지 전송에 실패했어요</h3>
+              <button
+                type="button"
+                className="validation-modal__close"
+                onClick={dismissValidationModal}
+                aria-label="경고 닫기"
+              >
+                ×
+              </button>
+            </div>
+            <p className="validation-modal__description">서버에서 다음과 같은 오류를 전달했습니다:</p>
+            <ul className="validation-modal__list">
+              {validationErrors.map((message, index) => (
+                <li key={`${message}-${index}`}>{message}</li>
+              ))}
+            </ul>
+            <div className="validation-modal__actions">
+              <button type="button" className="primary" onClick={dismissValidationModal}>
+                확인
+              </button>
+            </div>
           </div>
-          <p className="validation-warning__description">서버에서 다음과 같은 오류를 전달했습니다:</p>
-          <ul className="validation-warning__list">
-            {validationWarningMessages.map((message, index) => (
-              <li key={`${message}-${index}`}>{message}</li>
-            ))}
-          </ul>
         </div>
       )}
 
