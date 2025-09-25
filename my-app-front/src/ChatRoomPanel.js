@@ -3,6 +3,8 @@ import { BACKEND_BASE_URL } from './config';
 import { fetchChatRooms, fetchMessages, getOrCreateChatRoom } from './api';
 import { SimpleStompClient } from './simpleStompClient';
 
+const ROOM_TOKEN_STORAGE_KEY = 'festapick_room_tokens';
+
 function buildWebSocketUrl() {
   try {
     const url = new URL(BACKEND_BASE_URL);
@@ -56,6 +58,32 @@ function mergeMessagesById(existing, incoming) {
   return sortMessagesById(Array.from(map.values()));
 }
 
+function readStoredRoomTokens() {
+  try {
+    const raw = sessionStorage.getItem(ROOM_TOKEN_STORAGE_KEY);
+    if (!raw) {
+      return {};
+    }
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed;
+    }
+  } catch (error) {
+    console.warn('Failed to read stored room tokens', error);
+  }
+  return {};
+}
+
+function formatTokenPreview(token) {
+  if (!token) {
+    return '이 채팅방에서는 전역 토큰이 사용됩니다.';
+  }
+  if (token.length <= 20) {
+    return token;
+  }
+  return `${token.slice(0, 20)}...${token.slice(-10)}`;
+}
+
 export default function ChatRoomPanel({ accessToken, onLogout }) {
   const [festivalIdInput, setFestivalIdInput] = useState('');
   const [chatRoomId, setChatRoomId] = useState(null);
@@ -67,10 +95,65 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
   const [chatRooms, setChatRooms] = useState([]);
   const [chatRoomsMessage, setChatRoomsMessage] = useState('');
   const [isLoadingChatRooms, setIsLoadingChatRooms] = useState(false);
+  const [validationErrors, setValidationErrors] = useState(null);
+  const [roomTokens, setRoomTokens] = useState(() => readStoredRoomTokens());
+  const [isEditingRoomToken, setIsEditingRoomToken] = useState(false);
+  const [roomTokenDraft, setRoomTokenDraft] = useState('');
   const clientRef = useRef(null);
   const subscriptionRef = useRef(null);
+  const errorSubscriptionRef = useRef(null);
 
   const websocketUrl = useMemo(() => buildWebSocketUrl(), []);
+
+  const chatRoomKey = chatRoomId ? String(chatRoomId) : null;
+
+  useEffect(() => {
+    try {
+      if (roomTokens && Object.keys(roomTokens).length > 0) {
+        sessionStorage.setItem(ROOM_TOKEN_STORAGE_KEY, JSON.stringify(roomTokens));
+      } else {
+        sessionStorage.removeItem(ROOM_TOKEN_STORAGE_KEY);
+      }
+    } catch (error) {
+      console.warn('Failed to persist room tokens', error);
+    }
+  }, [roomTokens]);
+
+  useEffect(() => {
+    if (!accessToken) {
+      setRoomTokens({});
+      setIsEditingRoomToken(false);
+      setRoomTokenDraft('');
+    }
+  }, [accessToken]);
+
+  useEffect(() => {
+    if (!chatRoomKey) {
+      setIsEditingRoomToken(false);
+      setRoomTokenDraft('');
+      return;
+    }
+    if (!isEditingRoomToken) {
+      const stored = Object.prototype.hasOwnProperty.call(roomTokens, chatRoomKey)
+        ? roomTokens[chatRoomKey] ?? ''
+        : '';
+      setRoomTokenDraft(stored);
+    }
+  }, [chatRoomKey, roomTokens, isEditingRoomToken]);
+
+  const getRoomToken = useCallback(
+    (roomId) => {
+      if (!roomId) {
+        return null;
+      }
+      const key = String(roomId);
+      if (Object.prototype.hasOwnProperty.call(roomTokens, key)) {
+        return roomTokens[key] ?? '';
+      }
+      return accessToken ?? null;
+    },
+    [roomTokens, accessToken],
+  );
 
   const refreshChatRooms = useCallback(async () => {
     if (!accessToken) {
@@ -119,16 +202,19 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
   }, [accessToken, refreshChatRooms]);
 
   useEffect(() => {
-    if (!chatRoomId || !accessToken) {
+    if (!chatRoomId) {
       return undefined;
     }
 
+    const effectiveToken = getRoomToken(chatRoomId);
     const client = new SimpleStompClient(websocketUrl);
     clientRef.current = client;
     setConnectionStatus('connecting');
 
+    const headers = effectiveToken ? { Authorization: `Bearer ${effectiveToken}` } : {};
+
     client.connect(
-      { Authorization: `Bearer ${accessToken}` },
+      headers,
       () => {
         setConnectionStatus('connected');
         subscriptionRef.current = client.subscribe(`/sub/${chatRoomId}/messages`, (body) => {
@@ -137,6 +223,32 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
             setMessages((prev) => mergeMessagesById(prev, [payload]));
           } catch (error) {
             console.warn('Failed to parse incoming message', error);
+          }
+        });
+        errorSubscriptionRef.current = client.subscribe('/user/queue/errors', (body) => {
+          try {
+            const payload = JSON.parse(body);
+            const fieldErrors = Array.isArray(payload?.fieldErrors)
+              ? payload.fieldErrors.flatMap((item) =>
+                  Object.entries(item || {}).map(([field, message]) => `${field}: ${message || 'Invalid value'}`),
+                )
+              : [];
+            const globalErrors = Array.isArray(payload?.globalErrors)
+              ? payload.globalErrors.flatMap((item) =>
+                  Object.entries(item || {}).map(([, message]) => message || 'Invalid value'),
+                )
+              : [];
+            const messagesToShow = [...globalErrors, ...fieldErrors];
+            setValidationErrors(
+              messagesToShow.length > 0
+                ? messagesToShow
+                : ['알 수 없는 오류가 발생했습니다. 다시 시도해주세요.'],
+            );
+          } catch (error) {
+            console.warn('Failed to parse validation error payload', error);
+            setValidationErrors([
+              '서버에서 전달된 오류 메시지를 처리하지 못했습니다. 잠시 후 다시 시도해주세요.',
+            ]);
           }
         });
       },
@@ -150,17 +262,23 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
         client.unsubscribe(subscriptionRef.current);
         subscriptionRef.current = null;
       }
+      if (errorSubscriptionRef.current) {
+        client.unsubscribe(errorSubscriptionRef.current);
+        errorSubscriptionRef.current = null;
+      }
       client.disconnect();
       clientRef.current = null;
       setConnectionStatus('disconnected');
+      setValidationErrors(null);
     };
-  }, [chatRoomId, accessToken, websocketUrl]);
+  }, [chatRoomId, websocketUrl, getRoomToken]);
 
   const openChatRoom = useCallback(async (roomId) => {
-    if (!roomId || !accessToken) {
+    if (!roomId) {
       return;
     }
 
+    setValidationErrors(null);
     setChatRoomId((prev) => {
       if (prev === roomId) {
         return prev;
@@ -172,7 +290,13 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
     setMessagePage(0);
 
     try {
-      const payloads = await fetchMessages({ chatRoomId: roomId, page: 0, size: DEFAULT_MESSAGE_PAGE_SIZE, accessToken });
+      const tokenForRoom = getRoomToken(roomId);
+      const payloads = await fetchMessages({
+        chatRoomId: roomId,
+        page: 0,
+        size: DEFAULT_MESSAGE_PAGE_SIZE,
+        accessToken: tokenForRoom,
+      });
       setChatRoomId(roomId);
       setMessages(mergeMessagesById([], payloads));
       setMessagePage(1);
@@ -180,7 +304,7 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
     } catch (error) {
       setStatusMessage(error.message);
     }
-  }, [accessToken]);
+  }, [getRoomToken]);
 
   const handleSelectChatRoom = async (roomId) => {
     if (roomId === chatRoomId) {
@@ -216,7 +340,13 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
     try {
       setStatusMessage('이전 메시지를 불러오는 중입니다...');
       const nextPage = messagePage;
-      const payloads = await fetchMessages({ chatRoomId, page: nextPage, size: DEFAULT_MESSAGE_PAGE_SIZE, accessToken });
+      const tokenForRoom = getRoomToken(chatRoomId);
+      const payloads = await fetchMessages({
+        chatRoomId,
+        page: nextPage,
+        size: DEFAULT_MESSAGE_PAGE_SIZE,
+        accessToken: tokenForRoom,
+      });
       setMessages((prev) => mergeMessagesById(prev, payloads));
       setMessagePage(nextPage + 1);
       setStatusMessage(`${payloads.length}개의 메시지를 불러왔습니다.`);
@@ -227,20 +357,84 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
 
   const handleSendMessage = async (event) => {
     event.preventDefault();
-    if (!newMessage.trim() || !clientRef.current || !chatRoomId) {
+    if (!clientRef.current || !chatRoomId) {
       return;
     }
 
     try {
-      clientRef.current.send(`/pub/${chatRoomId}/messages`, JSON.stringify({ content: newMessage.trim() }), {
-        Authorization: `Bearer ${accessToken}`,
-      });
+      const tokenForRoom = getRoomToken(chatRoomId);
+      clientRef.current.send(
+        `/pub/${chatRoomId}/messages`,
+        JSON.stringify({ content: newMessage }),
+        {
+          ...(tokenForRoom ? { Authorization: `Bearer ${tokenForRoom}` } : {}),
+        },
+      );
       setNewMessage('');
     } catch (error) {
       setStatusMessage('메시지 전송에 실패했습니다. 연결 상태를 확인해주세요.');
       console.error(error);
     }
   };
+
+  const dismissValidationModal = () => {
+    setValidationErrors(null);
+  };
+
+  const beginRoomTokenEdit = () => {
+    if (!chatRoomKey) {
+      return;
+    }
+    const stored = Object.prototype.hasOwnProperty.call(roomTokens, chatRoomKey)
+      ? roomTokens[chatRoomKey] ?? ''
+      : '';
+    setRoomTokenDraft(stored);
+    setIsEditingRoomToken(true);
+  };
+
+  const cancelRoomTokenEdit = () => {
+    if (!chatRoomKey) {
+      setIsEditingRoomToken(false);
+      setRoomTokenDraft('');
+      return;
+    }
+    const stored = Object.prototype.hasOwnProperty.call(roomTokens, chatRoomKey)
+      ? roomTokens[chatRoomKey] ?? ''
+      : '';
+    setRoomTokenDraft(stored);
+    setIsEditingRoomToken(false);
+  };
+
+  const handleRoomTokenSubmit = (event) => {
+    event.preventDefault();
+    if (!chatRoomKey) {
+      return;
+    }
+    setRoomTokens((prev) => ({
+      ...prev,
+      [chatRoomKey]: roomTokenDraft ?? '',
+    }));
+    setIsEditingRoomToken(false);
+  };
+
+  const clearRoomToken = () => {
+    if (!chatRoomKey) {
+      return;
+    }
+    setRoomTokens((prev) => {
+      const next = { ...prev };
+      delete next[chatRoomKey];
+      return next;
+    });
+    setRoomTokenDraft('');
+    setIsEditingRoomToken(false);
+  };
+
+  const hasRoomTokenOverride = chatRoomKey
+    ? Object.prototype.hasOwnProperty.call(roomTokens, chatRoomKey)
+    : false;
+
+  const effectiveRoomToken = chatRoomId ? getRoomToken(chatRoomId) : null;
 
   return (
     <div className="card">
@@ -299,6 +493,84 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
 
       {statusMessage && <p className="status-message">{statusMessage}</p>}
 
+      {chatRoomId && (
+        <section className="room-token-panel">
+          <div className="room-token-panel__header">
+            <h3>채팅방 전용 토큰</h3>
+            <p className="room-token-panel__description">
+              이 채팅방에서 사용할 토큰을 직접 지정할 수 있습니다. 토큰을 비워두면 현재 로그인한 계정의 토큰이 사용됩니다.
+            </p>
+          </div>
+          {!isEditingRoomToken ? (
+            <>
+              <p className="token-preview room-token-panel__preview">{formatTokenPreview(effectiveRoomToken)}</p>
+              <div className="token-actions room-token-panel__actions">
+                <button type="button" className="secondary" onClick={beginRoomTokenEdit}>
+                  채팅방 토큰 설정
+                </button>
+                {hasRoomTokenOverride && (
+                  <button type="button" className="destructive" onClick={clearRoomToken}>
+                    채팅방 토큰 삭제
+                  </button>
+                )}
+              </div>
+              {hasRoomTokenOverride && (
+                <p className="room-token-panel__hint">전역 토큰 대신 채팅방 전용 토큰이 적용된 상태입니다.</p>
+              )}
+            </>
+          ) : (
+            <form className="form token-editor room-token-editor" onSubmit={handleRoomTokenSubmit}>
+              <label htmlFor="room-token-editor">채팅방에서 사용할 토큰</label>
+              <textarea
+                id="room-token-editor"
+                rows={4}
+                value={roomTokenDraft}
+                onChange={(event) => setRoomTokenDraft(event.target.value)}
+                placeholder="이 채팅방에서 사용할 액세스 토큰을 입력하세요."
+              />
+              <div className="token-editor__actions">
+                <button type="button" className="secondary" onClick={cancelRoomTokenEdit}>
+                  취소
+                </button>
+                <button type="submit" className="primary">
+                  저장
+                </button>
+              </div>
+            </form>
+          )}
+        </section>
+      )}
+
+      {Array.isArray(validationErrors) && validationErrors.length > 0 && (
+        <div className="validation-modal" role="alertdialog" aria-modal="true">
+          <div className="validation-modal__backdrop" />
+          <div className="validation-modal__dialog" role="document">
+            <div className="validation-modal__header">
+              <h3 className="validation-modal__title">메시지 전송에 실패했어요</h3>
+              <button
+                type="button"
+                className="validation-modal__close"
+                onClick={dismissValidationModal}
+                aria-label="경고 닫기"
+              >
+                ×
+              </button>
+            </div>
+            <p className="validation-modal__description">서버에서 다음과 같은 오류를 전달했습니다:</p>
+            <ul className="validation-modal__list">
+              {validationErrors.map((message, index) => (
+                <li key={`${message}-${index}`}>{message}</li>
+              ))}
+            </ul>
+            <div className="validation-modal__actions">
+              <button type="button" className="primary" onClick={dismissValidationModal}>
+                확인
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <form className="form" onSubmit={handleSendMessage}>
         <label htmlFor="newMessage">메시지 보내기</label>
         <textarea
@@ -309,7 +581,7 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
           placeholder="전송할 메시지를 입력하세요."
           disabled={connectionStatus !== 'connected'}
         />
-        <button type="submit" className="primary" disabled={connectionStatus !== 'connected' || !newMessage.trim()}>
+        <button type="submit" className="primary" disabled={connectionStatus !== 'connected'}>
           전송
         </button>
       </form>
