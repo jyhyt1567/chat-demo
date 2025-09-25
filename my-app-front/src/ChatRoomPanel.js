@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { BACKEND_BASE_URL } from './config';
 import { fetchChatRooms, fetchMessages, getOrCreateChatRoom } from './api';
 import { SimpleStompClient } from './simpleStompClient';
@@ -75,8 +75,11 @@ function readStoredRoomTokens() {
 }
 
 function formatTokenPreview(token) {
-  if (!token) {
-    return '이 채팅방에서는 전역 토큰이 사용됩니다.';
+  if (token === null || token === undefined) {
+    return '저장된 토큰이 없습니다.';
+  }
+  if (token === '') {
+    return '빈 문자열 (토큰 없이 전송)';
   }
   if (token.length <= 20) {
     return token;
@@ -86,7 +89,7 @@ function formatTokenPreview(token) {
 
 export default function ChatRoomPanel({ accessToken, onLogout }) {
   const [festivalIdInput, setFestivalIdInput] = useState('');
-  const [chatRoomId, setChatRoomId] = useState(null);
+  const [connectionContext, setConnectionContext] = useState({ roomId: null, token: null });
   const [messages, setMessages] = useState([]);
   const [messagePage, setMessagePage] = useState(0);
   const [statusMessage, setStatusMessage] = useState('');
@@ -97,15 +100,17 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
   const [isLoadingChatRooms, setIsLoadingChatRooms] = useState(false);
   const [validationErrors, setValidationErrors] = useState(null);
   const [roomTokens, setRoomTokens] = useState(() => readStoredRoomTokens());
-  const [isEditingRoomToken, setIsEditingRoomToken] = useState(false);
-  const [roomTokenDraft, setRoomTokenDraft] = useState('');
+  const [activeTokenEditorRoomId, setActiveTokenEditorRoomId] = useState(null);
+  const [tokenEditorDraft, setTokenEditorDraft] = useState('');
   const clientRef = useRef(null);
   const subscriptionRef = useRef(null);
   const errorSubscriptionRef = useRef(null);
 
-  const websocketUrl = useMemo(() => buildWebSocketUrl(), []);
+  const websocketUrlRef = useRef(buildWebSocketUrl());
+  const websocketUrl = websocketUrlRef.current;
 
-  const chatRoomKey = chatRoomId ? String(chatRoomId) : null;
+  const chatRoomId = connectionContext.roomId;
+  const connectionToken = connectionContext.token;
 
   useEffect(() => {
     try {
@@ -122,24 +127,11 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
   useEffect(() => {
     if (!accessToken) {
       setRoomTokens({});
-      setIsEditingRoomToken(false);
-      setRoomTokenDraft('');
+      setActiveTokenEditorRoomId(null);
+      setTokenEditorDraft('');
+      setConnectionContext({ roomId: null, token: null });
     }
   }, [accessToken]);
-
-  useEffect(() => {
-    if (!chatRoomKey) {
-      setIsEditingRoomToken(false);
-      setRoomTokenDraft('');
-      return;
-    }
-    if (!isEditingRoomToken) {
-      const stored = Object.prototype.hasOwnProperty.call(roomTokens, chatRoomKey)
-        ? roomTokens[chatRoomKey] ?? ''
-        : '';
-      setRoomTokenDraft(stored);
-    }
-  }, [chatRoomKey, roomTokens, isEditingRoomToken]);
 
   const getRoomToken = useCallback(
     (roomId) => {
@@ -154,6 +146,69 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
     },
     [roomTokens, accessToken],
   );
+
+  const applyRoomTokenOverride = useCallback((roomId, tokenValue) => {
+    if (!roomId) {
+      return;
+    }
+    const key = String(roomId);
+    setRoomTokens((prev) => {
+      const next = { ...prev };
+      if (tokenValue === null) {
+        delete next[key];
+      } else {
+        next[key] = tokenValue;
+      }
+      return next;
+    });
+  }, [setRoomTokens]);
+
+  const beginRoomTokenEdit = (roomId) => {
+    if (!roomId) {
+      return;
+    }
+    if (roomId === chatRoomId && connectionStatus === 'connected') {
+      return;
+    }
+    const key = String(roomId);
+    const stored = Object.prototype.hasOwnProperty.call(roomTokens, key) ? roomTokens[key] ?? '' : '';
+    setActiveTokenEditorRoomId(roomId);
+    setTokenEditorDraft(stored);
+  };
+
+  const cancelRoomTokenEdit = () => {
+    setActiveTokenEditorRoomId(null);
+    setTokenEditorDraft('');
+  };
+
+  const saveRoomTokenOverride = (roomId) => {
+    if (!roomId) {
+      return;
+    }
+    applyRoomTokenOverride(roomId, tokenEditorDraft ?? '');
+    cancelRoomTokenEdit();
+  };
+
+  const clearRoomTokenOverride = (roomId) => {
+    if (!roomId) {
+      return;
+    }
+    applyRoomTokenOverride(roomId, null);
+    if (activeTokenEditorRoomId === roomId) {
+      cancelRoomTokenEdit();
+    }
+  };
+
+  const handleApplyTokenAndEnter = async (event, roomId) => {
+    event.preventDefault();
+    if (!roomId) {
+      return;
+    }
+    const nextToken = tokenEditorDraft ?? '';
+    applyRoomTokenOverride(roomId, nextToken);
+    cancelRoomTokenEdit();
+    await openChatRoom(roomId, { tokenOverride: nextToken });
+  };
 
   const refreshChatRooms = useCallback(async () => {
     if (!accessToken) {
@@ -191,7 +246,7 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
     if (!accessToken) {
       setChatRooms([]);
       setChatRoomsMessage('');
-      setChatRoomId(null);
+      setConnectionContext({ roomId: null, token: null });
       setMessages([]);
       setMessagePage(0);
       setStatusMessage('');
@@ -206,12 +261,11 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
       return undefined;
     }
 
-    const effectiveToken = getRoomToken(chatRoomId);
     const client = new SimpleStompClient(websocketUrl);
     clientRef.current = client;
     setConnectionStatus('connecting');
 
-    const headers = effectiveToken ? { Authorization: `Bearer ${effectiveToken}` } : {};
+    const headers = connectionToken ? { Authorization: `Bearer ${connectionToken}` } : {};
 
     client.connect(
       headers,
@@ -271,45 +325,51 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
       setConnectionStatus('disconnected');
       setValidationErrors(null);
     };
-  }, [chatRoomId, websocketUrl, getRoomToken]);
+  }, [chatRoomId, websocketUrl, connectionToken]);
 
-  const openChatRoom = useCallback(async (roomId) => {
-    if (!roomId) {
-      return;
-    }
-
-    setValidationErrors(null);
-    setChatRoomId((prev) => {
-      if (prev === roomId) {
-        return prev;
+  const openChatRoom = useCallback(
+    async (roomId, options = {}) => {
+      if (!roomId) {
+        return;
       }
-      return null;
-    });
-    setStatusMessage('채팅 메시지를 불러오는 중입니다...');
-    setMessages([]);
-    setMessagePage(0);
 
-    try {
-      const tokenForRoom = getRoomToken(roomId);
-      const payloads = await fetchMessages({
-        chatRoomId: roomId,
-        page: 0,
-        size: DEFAULT_MESSAGE_PAGE_SIZE,
-        accessToken: tokenForRoom,
+      setValidationErrors(null);
+      setConnectionContext((prev) => {
+        if (prev.roomId === roomId || prev.roomId === null) {
+          return prev;
+        }
+        return { roomId: null, token: null };
       });
-      setChatRoomId(roomId);
-      setMessages(mergeMessagesById([], payloads));
-      setMessagePage(1);
-      setStatusMessage(`채팅방 #${roomId}을 열었습니다. 최근 ${payloads.length}개의 메시지를 확인했습니다.`);
-    } catch (error) {
-      setStatusMessage(error.message);
-    }
-  }, [getRoomToken]);
+      setStatusMessage('채팅 메시지를 불러오는 중입니다...');
+      setMessages([]);
+      setMessagePage(0);
+
+      try {
+        const hasExplicitOverride = Object.prototype.hasOwnProperty.call(options, 'tokenOverride');
+        const tokenForRoom = hasExplicitOverride ? options.tokenOverride : getRoomToken(roomId);
+        const normalizedToken = tokenForRoom ?? null;
+        const payloads = await fetchMessages({
+          chatRoomId: roomId,
+          page: 0,
+          size: DEFAULT_MESSAGE_PAGE_SIZE,
+          accessToken: normalizedToken ?? '',
+        });
+        setConnectionContext({ roomId, token: normalizedToken });
+        setMessages(mergeMessagesById([], payloads));
+        setMessagePage(1);
+        setStatusMessage(`채팅방 #${roomId}을 열었습니다. 최근 ${payloads.length}개의 메시지를 확인했습니다.`);
+      } catch (error) {
+        setStatusMessage(error.message);
+      }
+    },
+    [getRoomToken],
+  );
 
   const handleSelectChatRoom = async (roomId) => {
     if (roomId === chatRoomId) {
       return;
     }
+    cancelRoomTokenEdit();
     await openChatRoom(roomId);
   };
 
@@ -340,12 +400,12 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
     try {
       setStatusMessage('이전 메시지를 불러오는 중입니다...');
       const nextPage = messagePage;
-      const tokenForRoom = getRoomToken(chatRoomId);
+      const tokenForRoom = connectionToken;
       const payloads = await fetchMessages({
         chatRoomId,
         page: nextPage,
         size: DEFAULT_MESSAGE_PAGE_SIZE,
-        accessToken: tokenForRoom,
+        accessToken: tokenForRoom ?? '',
       });
       setMessages((prev) => mergeMessagesById(prev, payloads));
       setMessagePage(nextPage + 1);
@@ -362,7 +422,7 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
     }
 
     try {
-      const tokenForRoom = getRoomToken(chatRoomId);
+      const tokenForRoom = connectionToken;
       clientRef.current.send(
         `/pub/${chatRoomId}/messages`,
         JSON.stringify({ content: newMessage }),
@@ -380,61 +440,6 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
   const dismissValidationModal = () => {
     setValidationErrors(null);
   };
-
-  const beginRoomTokenEdit = () => {
-    if (!chatRoomKey) {
-      return;
-    }
-    const stored = Object.prototype.hasOwnProperty.call(roomTokens, chatRoomKey)
-      ? roomTokens[chatRoomKey] ?? ''
-      : '';
-    setRoomTokenDraft(stored);
-    setIsEditingRoomToken(true);
-  };
-
-  const cancelRoomTokenEdit = () => {
-    if (!chatRoomKey) {
-      setIsEditingRoomToken(false);
-      setRoomTokenDraft('');
-      return;
-    }
-    const stored = Object.prototype.hasOwnProperty.call(roomTokens, chatRoomKey)
-      ? roomTokens[chatRoomKey] ?? ''
-      : '';
-    setRoomTokenDraft(stored);
-    setIsEditingRoomToken(false);
-  };
-
-  const handleRoomTokenSubmit = (event) => {
-    event.preventDefault();
-    if (!chatRoomKey) {
-      return;
-    }
-    setRoomTokens((prev) => ({
-      ...prev,
-      [chatRoomKey]: roomTokenDraft ?? '',
-    }));
-    setIsEditingRoomToken(false);
-  };
-
-  const clearRoomToken = () => {
-    if (!chatRoomKey) {
-      return;
-    }
-    setRoomTokens((prev) => {
-      const next = { ...prev };
-      delete next[chatRoomKey];
-      return next;
-    });
-    setRoomTokenDraft('');
-    setIsEditingRoomToken(false);
-  };
-
-  const hasRoomTokenOverride = chatRoomKey
-    ? Object.prototype.hasOwnProperty.call(roomTokens, chatRoomKey)
-    : false;
-
-  const effectiveRoomToken = chatRoomId ? getRoomToken(chatRoomId) : null;
 
   return (
     <div className="card">
@@ -455,18 +460,94 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
         </div>
         {chatRoomsMessage && <p className="chat-room-status">{chatRoomsMessage}</p>}
         <ul className="chat-room-list">
-          {chatRooms.map((room) => (
-            <li key={room.roomId} className="chat-room-item">
-              <button
-                type="button"
-                className={`chat-room-button ${room.roomId === chatRoomId ? 'active' : ''}`}
-                onClick={() => handleSelectChatRoom(room.roomId)}
-              >
-                <span className="chat-room-title">{room.roomName || `채팅방 #${room.roomId}`}</span>
-                <span className="chat-room-meta">축제 ID: {room.festivalId ?? '정보 없음'}</span>
-              </button>
-            </li>
-          ))}
+          {chatRooms.map((room) => {
+            const roomKey = String(room.roomId);
+            const hasOverride = Object.prototype.hasOwnProperty.call(roomTokens, roomKey);
+            const storedToken = hasOverride ? roomTokens[roomKey] ?? '' : null;
+            const previewText = hasOverride
+              ? formatTokenPreview(storedToken)
+              : accessToken
+              ? formatTokenPreview(accessToken)
+              : '전역 토큰이 설정되지 않았습니다.';
+            const usageHint = hasOverride
+              ? storedToken === ''
+                ? '저장된 토큰이 비어 있어 Authorization 헤더 없이 연결됩니다.'
+                : '이 채팅방은 저장된 토큰으로 연결됩니다.'
+              : accessToken
+              ? '이 채팅방은 전역 토큰으로 연결됩니다.'
+              : '전역 토큰이 없어 Authorization 헤더 없이 연결을 시도합니다.';
+            const isActiveConnection = room.roomId === chatRoomId && connectionStatus === 'connected';
+            const isEditorOpen = activeTokenEditorRoomId === room.roomId;
+
+            return (
+              <li key={room.roomId} className={`chat-room-item${hasOverride ? ' chat-room-item--override' : ''}`}>
+                <div className="chat-room-item__row">
+                  <button
+                    type="button"
+                    className={`chat-room-button ${room.roomId === chatRoomId ? 'active' : ''}`}
+                    onClick={() => handleSelectChatRoom(room.roomId)}
+                  >
+                    <span className="chat-room-title">{room.roomName || `채팅방 #${room.roomId}`}</span>
+                    <span className="chat-room-meta">축제 ID: {room.festivalId ?? '정보 없음'}</span>
+                  </button>
+                  <div className="chat-room-item__controls">
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() => beginRoomTokenEdit(room.roomId)}
+                      disabled={isActiveConnection}
+                    >
+                      다른 토큰으로 입장
+                    </button>
+                    {hasOverride && (
+                      <button
+                        type="button"
+                        className="destructive"
+                        onClick={() => clearRoomTokenOverride(room.roomId)}
+                        disabled={isActiveConnection}
+                      >
+                        전역 토큰 사용
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div className="chat-room-item__token">
+                  <span className="chat-room-item__token-label">연결에 사용할 토큰</span>
+                  <span className="chat-room-item__token-preview">{previewText}</span>
+                </div>
+                <p className="chat-room-item__hint">{usageHint}</p>
+                {isActiveConnection && (
+                  <p className="chat-room-item__warning">이미 이 채팅방에 연결되어 있어 토큰을 변경할 수 없습니다.</p>
+                )}
+                {isEditorOpen && (
+                  <form
+                    className="chat-room-token-editor"
+                    onSubmit={(event) => handleApplyTokenAndEnter(event, room.roomId)}
+                  >
+                    <label htmlFor={`room-token-${room.roomId}`}>채팅방에서 사용할 토큰</label>
+                    <textarea
+                      id={`room-token-${room.roomId}`}
+                      rows={3}
+                      value={tokenEditorDraft}
+                      onChange={(event) => setTokenEditorDraft(event.target.value)}
+                      placeholder="이 채팅방에서 사용할 액세스 토큰을 입력하세요."
+                    />
+                    <div className="chat-room-token-editor__actions">
+                      <button type="button" className="secondary" onClick={cancelRoomTokenEdit}>
+                        취소
+                      </button>
+                      <button type="button" onClick={() => saveRoomTokenOverride(room.roomId)}>
+                        토큰만 저장
+                      </button>
+                      <button type="submit" className="primary">
+                        저장 후 입장
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </li>
+            );
+          })}
         </ul>
       </div>
 
@@ -492,54 +573,6 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
       </div>
 
       {statusMessage && <p className="status-message">{statusMessage}</p>}
-
-      {chatRoomId && (
-        <section className="room-token-panel">
-          <div className="room-token-panel__header">
-            <h3>채팅방 전용 토큰</h3>
-            <p className="room-token-panel__description">
-              이 채팅방에서 사용할 토큰을 직접 지정할 수 있습니다. 토큰을 비워두면 현재 로그인한 계정의 토큰이 사용됩니다.
-            </p>
-          </div>
-          {!isEditingRoomToken ? (
-            <>
-              <p className="token-preview room-token-panel__preview">{formatTokenPreview(effectiveRoomToken)}</p>
-              <div className="token-actions room-token-panel__actions">
-                <button type="button" className="secondary" onClick={beginRoomTokenEdit}>
-                  채팅방 토큰 설정
-                </button>
-                {hasRoomTokenOverride && (
-                  <button type="button" className="destructive" onClick={clearRoomToken}>
-                    채팅방 토큰 삭제
-                  </button>
-                )}
-              </div>
-              {hasRoomTokenOverride && (
-                <p className="room-token-panel__hint">전역 토큰 대신 채팅방 전용 토큰이 적용된 상태입니다.</p>
-              )}
-            </>
-          ) : (
-            <form className="form token-editor room-token-editor" onSubmit={handleRoomTokenSubmit}>
-              <label htmlFor="room-token-editor">채팅방에서 사용할 토큰</label>
-              <textarea
-                id="room-token-editor"
-                rows={4}
-                value={roomTokenDraft}
-                onChange={(event) => setRoomTokenDraft(event.target.value)}
-                placeholder="이 채팅방에서 사용할 액세스 토큰을 입력하세요."
-              />
-              <div className="token-editor__actions">
-                <button type="button" className="secondary" onClick={cancelRoomTokenEdit}>
-                  취소
-                </button>
-                <button type="submit" className="primary">
-                  저장
-                </button>
-              </div>
-            </form>
-          )}
-        </section>
-      )}
 
       {Array.isArray(validationErrors) && validationErrors.length > 0 && (
         <div className="validation-modal" role="alertdialog" aria-modal="true">

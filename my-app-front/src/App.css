@@ -255,6 +255,18 @@ textarea {
   margin: 0;
 }
 
+.chat-room-item__row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.chat-room-item__controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
 .chat-room-button {
   width: 100%;
   display: flex;
@@ -280,6 +292,83 @@ textarea {
 .chat-room-meta {
   font-size: 0.85rem;
   color: #64748b;
+}
+
+.chat-room-item__token {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.chat-room-item__token-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #475569;
+}
+
+.chat-room-item__token-preview {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.6rem 0.75rem;
+  border-radius: 10px;
+  background-color: #0f172a;
+  color: #e2e8f0;
+  font-family: 'Roboto Mono', monospace;
+  word-break: break-all;
+}
+
+.chat-room-item--override .chat-room-item__token-preview {
+  background-color: #312e81;
+  color: #ede9fe;
+}
+
+.chat-room-item__hint {
+  margin: 0.35rem 0 0;
+  color: #475569;
+  font-size: 0.85rem;
+}
+
+.chat-room-item__warning {
+  margin: 0.25rem 0 0;
+  color: #b91c1c;
+  font-size: 0.85rem;
+}
+
+.chat-room-token-editor {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 0.75rem;
+  background-color: #ffffff;
+}
+
+.chat-room-token-editor textarea {
+  min-height: 110px;
+}
+
+.chat-room-token-editor__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+@media (min-width: 640px) {
+  .chat-room-item__row {
+    flex-direction: row;
+    align-items: stretch;
+    justify-content: space-between;
+  }
+
+  .chat-room-item__controls {
+    align-self: center;
+  }
 }
 
 .message-list {
@@ -333,53 +422,6 @@ textarea {
   border-radius: 12px;
   font-family: 'Roboto Mono', monospace;
   word-break: break-all;
-}
-
-.room-token-panel {
-  margin-top: 1.5rem;
-  padding: 1.25rem;
-  border: 1px solid #e2e8f0;
-  border-radius: 14px;
-  background-color: #f8fafc;
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.room-token-panel__header {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-}
-
-.room-token-panel__header h3 {
-  margin: 0;
-  font-size: 1.1rem;
-}
-
-.room-token-panel__description {
-  margin: 0;
-  color: #4f5d75;
-  font-size: 0.9rem;
-  line-height: 1.5;
-}
-
-.room-token-panel__preview {
-  margin: 0;
-}
-
-.room-token-panel__actions {
-  justify-content: flex-start;
-}
-
-.room-token-panel__hint {
-  margin: 0;
-  color: #4338ca;
-  font-size: 0.85rem;
-}
-
-.room-token-editor textarea {
-  min-height: 120px;
 }
 
 .guide-list {
