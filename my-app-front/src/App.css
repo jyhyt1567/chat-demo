@@ -320,6 +320,166 @@ textarea {
   line-height: 1.5;
 }
 
+.attachment-toolbar {
+  margin-top: 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.attachment-input {
+  display: none;
+}
+
+.attachment-hint {
+  font-size: 0.85rem;
+  color: #475569;
+}
+
+.attachment-list {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.attachment-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background-color: #ffffff;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.attachment-item--preparing,
+.attachment-item--uploading {
+  border-style: dashed;
+}
+
+.attachment-item--uploaded {
+  border-color: #c7d2fe;
+  background-color: #eef2ff;
+}
+
+.attachment-item--error {
+  border-color: #f87171;
+  background-color: #fef2f2;
+}
+
+.attachment-preview {
+  width: 64px;
+  height: 64px;
+  border-radius: 8px;
+  overflow: hidden;
+  background-color: #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.attachment-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.attachment-placeholder {
+  width: 100%;
+  height: 100%;
+  background-image: linear-gradient(135deg, #e2e8f0 25%, transparent 25%),
+    linear-gradient(225deg, #e2e8f0 25%, transparent 25%),
+    linear-gradient(45deg, #e2e8f0 25%, transparent 25%),
+    linear-gradient(315deg, #e2e8f0 25%, #f8fafc 25%);
+  background-position: 10px 0, 10px 0, 0 0, 0 0;
+  background-size: 10px 10px;
+  background-repeat: repeat;
+  border-radius: 8px;
+}
+
+.attachment-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.attachment-name {
+  font-weight: 600;
+  color: #1f2933;
+  word-break: break-all;
+}
+
+.attachment-meta {
+  font-size: 0.8rem;
+  color: #64748b;
+}
+
+.attachment-status {
+  font-size: 0.8rem;
+  color: #475569;
+}
+
+.attachment-item--error .attachment-status {
+  color: #b91c1c;
+}
+
+.attachment-remove {
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.25rem;
+  border-radius: 50%;
+  transition: color 0.2s ease, background-color 0.2s ease;
+}
+
+.attachment-remove:hover,
+.attachment-remove:focus {
+  color: #1f2933;
+  background-color: #e2e8f0;
+  outline: none;
+}
+
+.message-images {
+  margin-top: 0.75rem;
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+}
+
+.message-image-wrapper {
+  display: block;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  background-color: #ffffff;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.message-image-wrapper:hover,
+.message-image-wrapper:focus {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.15);
+  outline: none;
+}
+
+.message-image {
+  width: 100%;
+  height: 160px;
+  object-fit: cover;
+  display: block;
+}
+
 .empty-state {
   margin: 0;
   color: #64748b;
