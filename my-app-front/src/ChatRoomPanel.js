@@ -34,6 +34,29 @@ function extractUploadMethod(slot) {
   return method.toUpperCase();
 }
 
+function stripUrlQueryParameters(url) {
+  if (typeof url !== 'string') {
+    return url;
+  }
+
+  try {
+    const parsed = new URL(url);
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch (error) {
+    const queryIndex = url.indexOf('?');
+    const hashIndex = url.indexOf('#');
+    const cutIndex = [queryIndex, hashIndex]
+      .filter((index) => index !== -1)
+      .reduce((minIndex, index) => (minIndex === -1 ? index : Math.min(minIndex, index)), -1);
+
+    if (cutIndex === -1) {
+      return url;
+    }
+
+    return url.slice(0, cutIndex);
+  }
+}
+
 async function uploadFileUsingSlot(slot, file) {
   const uploadUrl = extractUploadUrl(slot);
   if (!uploadUrl) {
@@ -352,6 +375,7 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
               uploadInfo: {
                 id: slotId,
                 presignedUrl: uploadUrl,
+                url: stripUrlQueryParameters(uploadUrl),
               },
             });
           } catch (error) {
@@ -595,7 +619,8 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
         .filter((attachment) => attachment.status === 'uploaded' && attachment.uploadInfo)
         .map((attachment) => ({
           id: attachment.uploadInfo.id,
-          presignedUrl: attachment.uploadInfo.presignedUrl,
+          presignedUrl:
+            attachment.uploadInfo.url || stripUrlQueryParameters(attachment.uploadInfo.presignedUrl),
         }));
 
       const tokenForRoom = getRoomToken(chatRoomId);
