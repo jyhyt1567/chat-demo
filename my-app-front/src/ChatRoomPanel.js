@@ -1,9 +1,82 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BACKEND_BASE_URL } from './config';
-import { fetchChatRooms, fetchMessages, getOrCreateChatRoom } from './api';
+import { fetchChatRooms, fetchMessages, getOrCreateChatRoom, requestImageUploadSlot } from './api';
 import { SimpleStompClient } from './simpleStompClient';
 
 const ROOM_TOKEN_STORAGE_KEY = 'festapick_room_tokens';
+
+function formatFileSize(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) {
+    return '0 B';
+  }
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const size = bytes / 1024 ** exponent;
+  const formatted = size >= 10 || exponent === 0 ? size.toFixed(0) : size.toFixed(1);
+  return `${formatted} ${units[exponent]}`;
+}
+
+function extractUploadUrl(slot) {
+  if (!slot || typeof slot !== 'object') {
+    return null;
+  }
+  return slot.presignedUrl || slot.uploadUrl || slot.url;
+}
+
+function extractUploadMethod(slot) {
+  if (!slot || typeof slot !== 'object') {
+    return 'PUT';
+  }
+  const method = slot.method || slot.httpMethod;
+  if (!method || typeof method !== 'string') {
+    return 'PUT';
+  }
+  return method.toUpperCase();
+}
+
+async function uploadFileUsingSlot(slot, file) {
+  const uploadUrl = extractUploadUrl(slot);
+  if (!uploadUrl) {
+    throw new Error('업로드 URL을 확인할 수 없습니다.');
+  }
+
+  const method = extractUploadMethod(slot);
+
+  if (method === 'POST' && slot && typeof slot.fields === 'object' && slot.fields !== null) {
+    const formData = new FormData();
+    Object.entries(slot.fields).forEach(([key, value]) => {
+      if (value !== undefined && value !== null) {
+        formData.append(key, value);
+      }
+    });
+    formData.append('file', file);
+    const response = await fetch(uploadUrl, {
+      method: 'POST',
+      body: formData,
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || '이미지 업로드에 실패했습니다.');
+    }
+    return;
+  }
+
+  const headers = {};
+  if (file.type) {
+    headers['Content-Type'] = file.type;
+  }
+
+  const response = await fetch(uploadUrl, {
+    method: method || 'PUT',
+    headers,
+    body: file,
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || '이미지 업로드에 실패했습니다.');
+  }
+}
 
 function buildWebSocketUrl() {
   try {
@@ -99,13 +172,38 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
   const [roomTokens, setRoomTokens] = useState(() => readStoredRoomTokens());
   const [isEditingRoomToken, setIsEditingRoomToken] = useState(false);
   const [roomTokenDraft, setRoomTokenDraft] = useState('');
+  const [attachments, setAttachments] = useState([]);
   const clientRef = useRef(null);
   const subscriptionRef = useRef(null);
   const errorSubscriptionRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const attachmentsRef = useRef([]);
 
   const websocketUrl = useMemo(() => buildWebSocketUrl(), []);
 
   const chatRoomKey = chatRoomId ? String(chatRoomId) : null;
+  const isUploadingAttachments = useMemo(
+    () => attachments.some((attachment) => attachment.status === 'preparing' || attachment.status === 'uploading'),
+    [attachments],
+  );
+  const hasAttachmentErrors = useMemo(
+    () => attachments.some((attachment) => attachment.status === 'error'),
+    [attachments],
+  );
+
+  useEffect(() => {
+    attachmentsRef.current = attachments;
+  }, [attachments]);
+
+  useEffect(() => {
+    return () => {
+      attachmentsRef.current.forEach((attachment) => {
+        if (attachment?.previewUrl) {
+          URL.revokeObjectURL(attachment.previewUrl);
+        }
+      });
+    };
+  }, []);
 
   useEffect(() => {
     try {
@@ -154,6 +252,127 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
     },
     [roomTokens, accessToken],
   );
+
+  const updateAttachment = useCallback((localId, updater) => {
+    setAttachments((prev) =>
+      prev.map((attachment) => {
+        if (attachment.localId !== localId) {
+          return attachment;
+        }
+        const updates = typeof updater === 'function' ? updater(attachment) : updater;
+        if (!updates || typeof updates !== 'object') {
+          return attachment;
+        }
+        return { ...attachment, ...updates };
+      }),
+    );
+  }, []);
+
+  const clearAttachments = useCallback(() => {
+    setAttachments((prev) => {
+      if (prev.length === 0) {
+        return prev;
+      }
+      prev.forEach((attachment) => {
+        if (attachment?.previewUrl) {
+          URL.revokeObjectURL(attachment.previewUrl);
+        }
+      });
+      return [];
+    });
+  }, []);
+
+  useEffect(() => {
+    clearAttachments();
+  }, [chatRoomId, clearAttachments]);
+
+  const removeAttachment = useCallback((localId) => {
+    setAttachments((prev) => {
+      const target = prev.find((attachment) => attachment.localId === localId);
+      if (target?.previewUrl) {
+        URL.revokeObjectURL(target.previewUrl);
+      }
+      return prev.filter((attachment) => attachment.localId !== localId);
+    });
+  }, []);
+
+  const handleImageSelection = useCallback(
+    async (event) => {
+      const files = Array.from(event.target.files || []);
+      event.target.value = '';
+
+      if (!chatRoomId) {
+        setStatusMessage('먼저 채팅방을 준비해주세요.');
+        return;
+      }
+
+      if (files.length === 0) {
+        return;
+      }
+
+      const tokenForRoom = getRoomToken(chatRoomId);
+
+      await Promise.all(
+        files.map(async (file) => {
+          const localId = `local-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+          const previewUrl = URL.createObjectURL(file);
+          setAttachments((prev) => [
+            ...prev,
+            {
+              localId,
+              fileName: file.name,
+              fileSize: file.size,
+              previewUrl,
+              status: 'preparing',
+              errorMessage: null,
+              uploadInfo: null,
+            },
+          ]);
+
+          try {
+            const slot = await requestImageUploadSlot({ accessToken: tokenForRoom });
+            const uploadUrl = extractUploadUrl(slot);
+            const slotId =
+              slot && typeof slot === 'object'
+                ? slot.id ?? slot.fileId ?? slot.temporalFileId ?? slot.temporaryFileId
+                : null;
+            if (slotId === undefined || slotId === null || !uploadUrl) {
+              throw new Error('업로드 정보를 확인할 수 없습니다.');
+            }
+
+            updateAttachment(localId, {
+              status: 'uploading',
+              errorMessage: null,
+            });
+
+            await uploadFileUsingSlot(slot, file);
+
+            updateAttachment(localId, {
+              status: 'uploaded',
+              uploadInfo: {
+                id: slotId,
+                presignedUrl: uploadUrl,
+              },
+            });
+          } catch (error) {
+            console.error('이미지 업로드에 실패했습니다.', error);
+            updateAttachment(localId, {
+              status: 'error',
+              errorMessage: error?.message || '이미지 업로드에 실패했습니다.',
+              uploadInfo: null,
+            });
+          }
+        }),
+      );
+    },
+    [chatRoomId, getRoomToken, updateAttachment],
+  );
+
+  const handleOpenFilePicker = useCallback(() => {
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  }, []);
 
   const refreshChatRooms = useCallback(async () => {
     if (!accessToken) {
@@ -362,15 +581,35 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
     }
 
     try {
+      if (isUploadingAttachments) {
+        setStatusMessage('이미지 업로드가 완료될 때까지 기다려주세요.');
+        return;
+      }
+
+      if (hasAttachmentErrors) {
+        setStatusMessage('업로드에 실패한 이미지를 제거하거나 다시 시도해주세요.');
+        return;
+      }
+
+      const attachmentPayloads = attachments
+        .filter((attachment) => attachment.status === 'uploaded' && attachment.uploadInfo)
+        .map((attachment) => ({
+          id: attachment.uploadInfo.id,
+          presignedUrl: attachment.uploadInfo.presignedUrl,
+        }));
+
       const tokenForRoom = getRoomToken(chatRoomId);
       clientRef.current.send(
         `/pub/${chatRoomId}/messages`,
-        JSON.stringify({ content: newMessage }),
+        JSON.stringify({ content: newMessage, imageInfos: attachmentPayloads }),
         {
           ...(tokenForRoom ? { Authorization: `Bearer ${tokenForRoom}` } : {}),
         },
       );
       setNewMessage('');
+      if (attachments.length > 0) {
+        clearAttachments();
+      }
     } catch (error) {
       setStatusMessage('메시지 전송에 실패했습니다. 연결 상태를 확인해주세요.');
       console.error(error);
@@ -581,7 +820,72 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
           placeholder="전송할 메시지를 입력하세요."
           disabled={connectionStatus !== 'connected'}
         />
-        <button type="submit" className="primary" disabled={connectionStatus !== 'connected'}>
+        <div className="attachment-toolbar">
+          <input
+            ref={fileInputRef}
+            className="attachment-input"
+            type="file"
+            accept="image/*"
+            multiple
+            onChange={handleImageSelection}
+            disabled={connectionStatus !== 'connected'}
+          />
+          <button
+            type="button"
+            className="secondary"
+            onClick={handleOpenFilePicker}
+            disabled={connectionStatus !== 'connected'}
+          >
+            이미지 추가
+          </button>
+          {isUploadingAttachments && <span className="attachment-hint">이미지를 업로드하는 중입니다...</span>}
+        </div>
+        {attachments.length > 0 && (
+          <ul className="attachment-list">
+            {attachments.map((attachment) => {
+              let statusLabel = '';
+              if (attachment.status === 'preparing') {
+                statusLabel = '업로드 준비 중';
+              } else if (attachment.status === 'uploading') {
+                statusLabel = '업로드 중';
+              } else if (attachment.status === 'uploaded') {
+                statusLabel = '업로드 완료';
+              } else if (attachment.status === 'error') {
+                statusLabel = attachment.errorMessage || '업로드 실패';
+              }
+
+              return (
+                <li key={attachment.localId} className={`attachment-item attachment-item--${attachment.status}`}>
+                  <div className="attachment-preview">
+                    {attachment.previewUrl ? (
+                      <img src={attachment.previewUrl} alt={`${attachment.fileName} 미리보기`} />
+                    ) : (
+                      <div className="attachment-placeholder" aria-hidden="true" />
+                    )}
+                  </div>
+                  <div className="attachment-info">
+                    <span className="attachment-name">{attachment.fileName}</span>
+                    <span className="attachment-meta">{formatFileSize(attachment.fileSize)}</span>
+                    <span className="attachment-status">{statusLabel}</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="attachment-remove"
+                    onClick={() => removeAttachment(attachment.localId)}
+                    aria-label={`${attachment.fileName} 제거`}
+                  >
+                    ×
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        <button
+          type="submit"
+          className="primary"
+          disabled={connectionStatus !== 'connected' || isUploadingAttachments || hasAttachmentErrors}
+        >
           전송
         </button>
       </form>
@@ -594,7 +898,22 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
               <span className="sender">{message.senderName || '알 수 없음'}</span>
               {message.profileImgUrl && <img src={message.profileImgUrl} alt={message.senderName} className="avatar" />}
             </div>
-            <p className="message-body">{message.content}</p>
+            {message.content && <p className="message-body">{message.content}</p>}
+            {Array.isArray(message.imageUrls) && message.imageUrls.length > 0 && (
+              <div className="message-images">
+                {message.imageUrls.map((imageUrl, imageIndex) => (
+                  <a
+                    key={`${message.id ?? index}-image-${imageIndex}`}
+                    className="message-image-wrapper"
+                    href={imageUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <img src={imageUrl} alt={`메시지 이미지 ${imageIndex + 1}`} className="message-image" />
+                  </a>
+                ))}
+              </div>
+            )}
           </div>
         ))}
       </div>

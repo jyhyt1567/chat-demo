@@ -104,3 +104,28 @@ export async function fetchChatRooms({ page = 0, size = 15, accessToken }) {
   const data = await handleJsonResponse(response);
   return data;
 }
+
+export async function requestImageUploadSlot({ accessToken } = {}) {
+  const response = await fetch(`${BACKEND_BASE_URL}/api/presigned-url`, {
+    method: 'GET',
+    credentials: 'include',
+    headers: {
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+    },
+  });
+
+  if (!response.ok) {
+    const errorBody = await handleJsonResponse(response);
+    throw new Error(errorBody?.message || '이미지 업로드 URL 발급에 실패했습니다.');
+  }
+
+  const data = await handleJsonResponse(response);
+  if (data && typeof data === 'object' && data !== null) {
+    if (Object.prototype.hasOwnProperty.call(data, 'content') && data.content) {
+      return data.content;
+    }
+    return data;
+  }
+
+  throw new Error('예상치 못한 Presigned URL 응답 형식입니다.');
+}
