@@ -154,6 +154,39 @@ function mergeMessagesById(existing, incoming) {
   return sortMessagesById(Array.from(map.values()));
 }
 
+function getMessageImageUrls(message) {
+  if (!message || typeof message !== 'object') {
+    return [];
+  }
+
+  const urlSet = new Set();
+
+  if (Array.isArray(message.imageUrls)) {
+    message.imageUrls.forEach((url) => {
+      if (typeof url === 'string' && url.trim()) {
+        urlSet.add(url);
+      }
+    });
+  }
+
+  if (typeof message.imageUrl === 'string' && message.imageUrl.trim()) {
+    urlSet.add(message.imageUrl);
+  }
+
+  if (Array.isArray(message.imageInfos)) {
+    message.imageInfos.forEach((info) => {
+      if (info && typeof info === 'object') {
+        const candidate = info.url || info.presignedUrl;
+        if (typeof candidate === 'string' && candidate.trim()) {
+          urlSet.add(candidate);
+        }
+      }
+    });
+  }
+
+  return Array.from(urlSet);
+}
+
 function readStoredRoomTokens() {
   try {
     const raw = sessionStorage.getItem(ROOM_TOKEN_STORAGE_KEY);
@@ -333,70 +366,81 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
         return;
       }
 
+      if (attachmentsRef.current.length >= 1) {
+        setStatusMessage('메시지에는 이미지를 하나만 첨부할 수 있습니다. 기존 이미지를 제거해주세요.');
+        return;
+      }
+
+      const [file] = files;
+
+      if (!file) {
+        return;
+      }
+
       const tokenForRoom = getRoomToken(chatRoomId);
 
-      await Promise.all(
-        files.map(async (file) => {
-          const localId = `local-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-          const previewUrl = URL.createObjectURL(file);
-          setAttachments((prev) => [
-            ...prev,
-            {
-              localId,
-              fileName: file.name,
-              fileSize: file.size,
-              previewUrl,
-              status: 'preparing',
-              errorMessage: null,
-              uploadInfo: null,
-            },
-          ]);
+      const localId = `local-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const previewUrl = URL.createObjectURL(file);
+      setAttachments((prev) => [
+        ...prev,
+        {
+          localId,
+          fileName: file.name,
+          fileSize: file.size,
+          previewUrl,
+          status: 'preparing',
+          errorMessage: null,
+          uploadInfo: null,
+        },
+      ]);
 
-          try {
-            const slot = await requestImageUploadSlot({ accessToken: tokenForRoom });
-            const uploadUrl = extractUploadUrl(slot);
-            const slotId =
-              slot && typeof slot === 'object'
-                ? slot.id ?? slot.fileId ?? slot.temporalFileId ?? slot.temporaryFileId
-                : null;
-            if (slotId === undefined || slotId === null || !uploadUrl) {
-              throw new Error('업로드 정보를 확인할 수 없습니다.');
-            }
+      try {
+        const slot = await requestImageUploadSlot({ accessToken: tokenForRoom });
+        const uploadUrl = extractUploadUrl(slot);
+        const slotId =
+          slot && typeof slot === 'object'
+            ? slot.id ?? slot.fileId ?? slot.temporalFileId ?? slot.temporaryFileId
+            : null;
+        if (slotId === undefined || slotId === null || !uploadUrl) {
+          throw new Error('업로드 정보를 확인할 수 없습니다.');
+        }
 
-            updateAttachment(localId, {
-              status: 'uploading',
-              errorMessage: null,
-            });
+        updateAttachment(localId, {
+          status: 'uploading',
+          errorMessage: null,
+        });
 
-            await uploadFileUsingSlot(slot, file);
+        await uploadFileUsingSlot(slot, file);
 
-            updateAttachment(localId, {
-              status: 'uploaded',
-              uploadInfo: {
-                id: slotId,
-                presignedUrl: uploadUrl,
-                url: stripUrlQueryParameters(uploadUrl),
-              },
-            });
-          } catch (error) {
-            console.error('이미지 업로드에 실패했습니다.', error);
-            updateAttachment(localId, {
-              status: 'error',
-              errorMessage: error?.message || '이미지 업로드에 실패했습니다.',
-              uploadInfo: null,
-            });
-          }
-        }),
-      );
+        updateAttachment(localId, {
+          status: 'uploaded',
+          uploadInfo: {
+            id: slotId,
+            presignedUrl: uploadUrl,
+            url: stripUrlQueryParameters(uploadUrl),
+          },
+        });
+      } catch (error) {
+        console.error('이미지 업로드에 실패했습니다.', error);
+        updateAttachment(localId, {
+          status: 'error',
+          errorMessage: error?.message || '이미지 업로드에 실패했습니다.',
+          uploadInfo: null,
+        });
+      }
     },
-    [chatRoomId, getRoomToken, updateAttachment],
+    [chatRoomId, getRoomToken, updateAttachment, setStatusMessage],
   );
 
   const handleOpenFilePicker = useCallback(() => {
+    if (attachmentsRef.current.length >= 1) {
+      setStatusMessage('메시지에는 이미지를 하나만 첨부할 수 있습니다. 기존 이미지를 제거해주세요.');
+      return;
+    }
     if (fileInputRef.current) {
       fileInputRef.current.click();
     }
-  }, []);
+  }, [setStatusMessage]);
 
   const refreshChatRooms = useCallback(async () => {
     if (!accessToken) {
@@ -615,18 +659,26 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
         return;
       }
 
-      const attachmentPayloads = attachments
-        .filter((attachment) => attachment.status === 'uploaded' && attachment.uploadInfo)
-        .map((attachment) => ({
-          id: attachment.uploadInfo.id,
-          presignedUrl:
-            attachment.uploadInfo.url || stripUrlQueryParameters(attachment.uploadInfo.presignedUrl),
-        }));
+      const uploadedAttachment = attachments.find(
+        (attachment) => attachment.status === 'uploaded' && attachment.uploadInfo,
+      );
+      const attachmentPayload = uploadedAttachment
+        ? {
+            id: uploadedAttachment.uploadInfo.id,
+            presignedUrl:
+              uploadedAttachment.uploadInfo.url ||
+              stripUrlQueryParameters(uploadedAttachment.uploadInfo.presignedUrl),
+          }
+        : null;
 
       const tokenForRoom = getRoomToken(chatRoomId);
+      const payload = { content: newMessage };
+      if (attachmentPayload) {
+        payload.imageInfo = attachmentPayload;
+      }
       clientRef.current.send(
         `/pub/${chatRoomId}/messages`,
-        JSON.stringify({ content: newMessage, imageInfos: attachmentPayloads }),
+        JSON.stringify(payload),
         {
           ...(tokenForRoom ? { Authorization: `Bearer ${tokenForRoom}` } : {}),
         },
@@ -851,15 +903,14 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
             className="attachment-input"
             type="file"
             accept="image/*"
-            multiple
             onChange={handleImageSelection}
-            disabled={connectionStatus !== 'connected'}
+            disabled={connectionStatus !== 'connected' || attachments.length >= 1}
           />
           <button
             type="button"
             className="secondary"
             onClick={handleOpenFilePicker}
-            disabled={connectionStatus !== 'connected'}
+            disabled={connectionStatus !== 'connected' || attachments.length >= 1}
           >
             이미지 추가
           </button>
@@ -917,30 +968,38 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
 
       <div className="message-list">
         {messages.length === 0 && <p className="empty-state">표시할 메시지가 없습니다. 먼저 불러오기 버튼을 눌러보세요.</p>}
-        {messages.map((message, index) => (
-          <div key={message.id ?? `${message.senderName ?? 'unknown'}-${index}`} className="message-item">
-            <div className="message-header">
-              <span className="sender">{message.senderName || '알 수 없음'}</span>
-              {message.profileImgUrl && <img src={message.profileImgUrl} alt={message.senderName} className="avatar" />}
-            </div>
-            {message.content && <p className="message-body">{message.content}</p>}
-            {Array.isArray(message.imageUrls) && message.imageUrls.length > 0 && (
-              <div className="message-images">
-                {message.imageUrls.map((imageUrl, imageIndex) => (
-                  <a
-                    key={`${message.id ?? index}-image-${imageIndex}`}
-                    className="message-image-wrapper"
-                    href={imageUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    <img src={imageUrl} alt={`메시지 이미지 ${imageIndex + 1}`} className="message-image" />
-                  </a>
-                ))}
+        {messages.map((message, index) => {
+          const imageUrls = getMessageImageUrls(message);
+          return (
+            <div
+              key={message.id ?? `${message.senderName ?? 'unknown'}-${index}`}
+              className="message-item"
+            >
+              <div className="message-header">
+                <span className="sender">{message.senderName || '알 수 없음'}</span>
+                {message.profileImgUrl && (
+                  <img src={message.profileImgUrl} alt={message.senderName} className="avatar" />
+                )}
               </div>
-            )}
-          </div>
-        ))}
+              {message.content && <p className="message-body">{message.content}</p>}
+              {imageUrls.length > 0 && (
+                <div className="message-images">
+                  {imageUrls.map((imageUrl, imageIndex) => (
+                    <a
+                      key={`${message.id ?? index}-image-${imageIndex}`}
+                      className="message-image-wrapper"
+                      href={imageUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <img src={imageUrl} alt={`메시지 이미지 ${imageIndex + 1}`} className="message-image" />
+                    </a>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
