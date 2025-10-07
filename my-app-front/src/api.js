@@ -63,8 +63,18 @@ export async function getOrCreateChatRoom({ festivalId, accessToken }) {
   }
 
   const data = await handleJsonResponse(response);
+  if (
+    !data ||
+    typeof data !== 'object' ||
+    data === null ||
+    !Object.prototype.hasOwnProperty.call(data, 'content') ||
+    !data.content ||
+    typeof data.content !== 'object'
+  ) {
+    throw new Error('예상치 못한 채팅방 응답 형식입니다.');
+  }
 
-  return Number(data.content);
+  return data.content;
 }
 
 export async function fetchMessages({ chatRoomId, page = 0, size = 30, accessToken }) {

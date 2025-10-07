@@ -609,7 +609,13 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
 
     try {
       setStatusMessage('채팅방을 준비하는 중입니다...');
-      const roomId = await getOrCreateChatRoom({ festivalId: festivalIdInput.trim(), accessToken });
+      const chatRoom = await getOrCreateChatRoom({ festivalId: festivalIdInput.trim(), accessToken });
+      const roomId = chatRoom?.roomId;
+
+      if (!roomId) {
+        throw new Error('채팅방 정보를 불러오지 못했습니다.');
+      }
+
       await refreshChatRooms();
       await openChatRoom(roomId);
       setStatusMessage((prev) => prev || `채팅방 #${roomId} 준비가 완료되었습니다.`);
