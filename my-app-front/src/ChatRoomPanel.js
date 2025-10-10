@@ -117,6 +117,26 @@ function buildWebSocketUrl() {
 
 const DEFAULT_MESSAGE_PAGE_SIZE = 30;
 
+function formatTimestamp(ms) {
+  if (ms === undefined || ms === null) {
+    return '';
+  }
+  const date = new Date(ms);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+  try {
+    return date.toLocaleTimeString('ko-KR', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    });
+  } catch (error) {
+    return date.toLocaleTimeString();
+  }
+}
+
 function coerceMessageId(message) {
   if (!message || message.id === undefined || message.id === null) {
     return Number.MAX_SAFE_INTEGER;
@@ -229,11 +249,15 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
   const [isEditingRoomToken, setIsEditingRoomToken] = useState(false);
   const [roomTokenDraft, setRoomTokenDraft] = useState('');
   const [attachments, setAttachments] = useState([]);
+  const [outgoingFrames, setOutgoingFrames] = useState([]);
+  const [expandedFrameIds, setExpandedFrameIds] = useState([]);
+  const [frameLogStatus, setFrameLogStatus] = useState('');
   const clientRef = useRef(null);
   const subscriptionRef = useRef(null);
   const errorSubscriptionRef = useRef(null);
   const fileInputRef = useRef(null);
   const attachmentsRef = useRef([]);
+  const frameCounterRef = useRef(0);
 
   const websocketUrl = useMemo(() => buildWebSocketUrl(), []);
 
@@ -250,6 +274,17 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
   useEffect(() => {
     attachmentsRef.current = attachments;
   }, [attachments]);
+
+  useEffect(() => {
+    if (!frameLogStatus) {
+      return undefined;
+    }
+
+    const timeoutId = setTimeout(() => setFrameLogStatus(''), 2500);
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [frameLogStatus]);
 
   useEffect(() => {
     return () => {
@@ -336,6 +371,60 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
       });
       return [];
     });
+  }, []);
+
+  const clearFrameLog = useCallback(() => {
+    setOutgoingFrames([]);
+    setExpandedFrameIds([]);
+    setFrameLogStatus('');
+    frameCounterRef.current = 0;
+  }, []);
+
+  const handleFrameSent = useCallback((frame) => {
+    frameCounterRef.current += 1;
+    const entry = {
+      id: `frame-${frameCounterRef.current}`,
+      command: frame?.command || 'UNKNOWN',
+      headers: frame?.headers || {},
+      body: frame?.body ?? '',
+      raw: frame?.raw ?? '',
+      timestamp: frame?.timestamp ?? Date.now(),
+    };
+    setOutgoingFrames((prev) => [entry, ...prev].slice(0, 100));
+  }, []);
+
+  const toggleFrameExpansion = useCallback((frameId) => {
+    setExpandedFrameIds((prev) => {
+      if (prev.includes(frameId)) {
+        return prev.filter((id) => id !== frameId);
+      }
+      return [...prev, frameId];
+    });
+  }, []);
+
+  const handleCopyFrame = useCallback(async (rawFrame) => {
+    if (!rawFrame) {
+      return;
+    }
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(rawFrame);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = rawFrame;
+        textarea.setAttribute('readonly', '');
+        textarea.style.position = 'absolute';
+        textarea.style.left = '-9999px';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      setFrameLogStatus('프레임을 클립보드에 복사했습니다.');
+    } catch (error) {
+      console.error('Failed to copy STOMP frame', error);
+      setFrameLogStatus('프레임을 복사하지 못했습니다. 브라우저 권한을 확인해주세요.');
+    }
   }, []);
 
   useEffect(() => {
@@ -489,12 +578,14 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
   }, [accessToken, refreshChatRooms]);
 
   useEffect(() => {
+    clearFrameLog();
+
     if (!chatRoomId) {
       return undefined;
     }
 
     const effectiveToken = getRoomToken(chatRoomId);
-    const client = new SimpleStompClient(websocketUrl);
+    const client = new SimpleStompClient(websocketUrl, { onFrameSent: handleFrameSent });
     clientRef.current = client;
     setConnectionStatus('connecting');
 
@@ -558,7 +649,7 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
       setConnectionStatus('disconnected');
       setValidationErrors(null);
     };
-  }, [chatRoomId, websocketUrl, getRoomToken]);
+  }, [chatRoomId, websocketUrl, getRoomToken, clearFrameLog, handleFrameSent]);
 
   const openChatRoom = useCallback(async (roomId) => {
     if (!roomId) {
@@ -759,7 +850,8 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
   const effectiveRoomToken = chatRoomId ? getRoomToken(chatRoomId) : null;
 
   return (
-    <div className="card">
+    <div className="chat-panel-wrapper">
+      <div className="card chat-panel-main">
       <div className="card-header">
         <h2>실시간 채팅 도구</h2>
         <span className={`status-indicator ${connectionStatus}`}>{connectionStatus}</span>
@@ -1007,6 +1099,65 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
           );
         })}
       </div>
+    </div>
+      <aside className="card frame-log-panel" aria-labelledby="frame-log-title">
+        <div className="frame-log-header">
+          <h3 id="frame-log-title">전송한 STOMP 프레임</h3>
+          <button
+            type="button"
+            className="secondary frame-log-clear"
+            onClick={clearFrameLog}
+            disabled={outgoingFrames.length === 0}
+          >
+            로그 비우기
+          </button>
+        </div>
+        {frameLogStatus && (
+          <p className="frame-log-status" role="status">{frameLogStatus}</p>
+        )}
+        <div className="frame-log-content">
+          {outgoingFrames.length === 0 ? (
+            <p className="frame-log-empty">
+              아직 전송한 프레임이 없습니다. 채팅을 시작하면 여기에서 확인할 수 있습니다.
+            </p>
+          ) : (
+            <ul className="frame-log-list">
+              {outgoingFrames.map((frame) => {
+                const isExpanded = expandedFrameIds.includes(frame.id);
+                const displayRaw = (frame.raw || '').replace(/\u0000/g, '␀');
+                return (
+                  <li key={frame.id} className={`frame-log-item ${isExpanded ? 'expanded' : ''}`}>
+                    <button
+                      type="button"
+                      className="frame-log-toggle"
+                      onClick={() => toggleFrameExpansion(frame.id)}
+                      aria-expanded={isExpanded}
+                    >
+                      <span className="frame-log-command">{frame.command}</span>
+                      <span className="frame-log-meta">
+                        <span className="frame-log-time">{formatTimestamp(frame.timestamp)}</span>
+                        <span className="frame-log-chevron" aria-hidden="true">{isExpanded ? '▴' : '▾'}</span>
+                      </span>
+                    </button>
+                    {isExpanded && (
+                      <div className="frame-log-details">
+                        <pre className="frame-log-raw">{displayRaw}</pre>
+                        <button
+                          type="button"
+                          className="secondary frame-log-copy"
+                          onClick={() => handleCopyFrame(frame.raw)}
+                        >
+                          프레임 복사
+                        </button>
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      </aside>
     </div>
   );
 }

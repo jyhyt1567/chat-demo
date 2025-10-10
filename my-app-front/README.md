@@ -14,6 +14,16 @@ Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
 The page will reload when you make changes.\
 You may also see any lint errors in the console.
 
+When you start the app you can choose the backend port that the frontend talks to. By default the app uses `http://localhost:8080`, but you can override it in either of the following ways:
+
+```
+BACKEND_PORT=9090 npm start
+# or
+npm start -- --backend-port=9090
+```
+
+You can still provide a full URL via `REACT_APP_BACKEND_BASE_URL` if you need to target a different host.
+
 ### `npm test`
 
 Launches the test runner in the interactive watch mode.\

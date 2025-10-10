@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import HomePage from './HomePage';
 import TokenExchangePage from './TokenExchangePage';
 import { AuthProvider } from './context';
+import { BACKEND_BASE_URL } from './config';
 import './App.css';
 
 function useSimpleRouter() {
@@ -38,7 +39,13 @@ export default function App() {
 
   return (
     <AuthProvider>
-      {renderPage()}
+      <div className="app-shell">
+        <div className="backend-indicator" role="status" aria-live="polite">
+          <span className="backend-indicator__label">현재 연결된 백엔드</span>
+          <code className="backend-indicator__value">{BACKEND_BASE_URL}</code>
+        </div>
+        {renderPage()}
+      </div>
     </AuthProvider>
   );
 }
