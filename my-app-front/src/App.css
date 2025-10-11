@@ -92,12 +92,69 @@ body {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
+  min-height: 0;
+}
+
+.chat-panel-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1.75rem;
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 0.75rem;
+}
+
+.chat-panel-tab {
+  background: transparent;
+  border: none;
+  border-radius: 999px;
+  padding: 0.55rem 1.25rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #64748b;
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+  transform: none;
+}
+
+.chat-panel-tab:hover {
+  background-color: #eef2ff;
+  color: #4338ca;
+  transform: none;
+}
+
+.chat-panel-tab.active {
+  background: linear-gradient(135deg, #4f46e5, #7c3aed);
+  color: #ffffff;
+  box-shadow: 0 8px 18px rgba(79, 70, 229, 0.2);
+}
+
+.chat-panel-tab:focus-visible {
+  outline: 2px solid #6366f1;
+  outline-offset: 2px;
+}
+
+.chat-panel-tabpanel {
+  margin-top: 1.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  min-height: 0;
+}
+
+.chat-panel-tabpanel[hidden] {
+  display: none;
+}
+
+.chat-panel-tabpanel--frames {
+  gap: 1.25rem;
 }
 
 .chat-session {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
+  min-height: 0;
 }
 
 .message-list-container {
@@ -140,10 +197,14 @@ body {
 }
 
 .frame-log-panel {
-  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   gap: 1rem;
+  padding: 1.5rem;
+  border-radius: 14px;
+  border: 1px solid #e2e8f0;
+  background-color: #f8fafc;
+  min-height: 0;
 }
 
 .frame-log-header {
@@ -168,10 +229,20 @@ body {
   font-size: 0.85rem;
 }
 
+.frame-log-description {
+  margin: 0;
+  color: #475569;
+  line-height: 1.6;
+  font-size: 0.95rem;
+}
+
 .frame-log-content {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+  max-height: 360px;
+  overflow-y: auto;
+  padding-right: 0.25rem;
 }
 
 .frame-log-empty {

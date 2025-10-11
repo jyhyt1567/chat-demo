@@ -252,6 +252,7 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
   const [outgoingFrames, setOutgoingFrames] = useState([]);
   const [expandedFrameIds, setExpandedFrameIds] = useState([]);
   const [frameLogStatus, setFrameLogStatus] = useState('');
+  const [activeMainTab, setActiveMainTab] = useState('chat');
   const clientRef = useRef(null);
   const subscriptionRef = useRef(null);
   const errorSubscriptionRef = useRef(null);
@@ -883,207 +884,310 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
 
         {statusMessage && <p className="status-message">{statusMessage}</p>}
 
-        {chatRoomId && (
-          <section className="room-token-panel">
-            <div className="room-token-panel__header">
-              <h3>채팅방 전용 토큰</h3>
-              <p className="room-token-panel__description">
-                이 채팅방에서 사용할 토큰을 직접 지정할 수 있습니다. 토큰을 비워두면 현재 로그인한 계정의 토큰이 사용됩니다.
-              </p>
-            </div>
-            {!isEditingRoomToken ? (
-              <>
-                <p className="token-preview room-token-panel__preview">{formatTokenPreview(effectiveRoomToken)}</p>
-                <div className="token-actions room-token-panel__actions">
-                  <button type="button" className="secondary" onClick={beginRoomTokenEdit}>
-                    채팅방 토큰 설정
-                  </button>
-                  {hasRoomTokenOverride && (
-                    <button type="button" className="destructive" onClick={clearRoomToken}>
-                      채팅방 토큰 삭제
-                    </button>
-                  )}
-                </div>
-                {hasRoomTokenOverride && (
-                  <p className="room-token-panel__hint">전역 토큰 대신 채팅방 전용 토큰이 적용된 상태입니다.</p>
-                )}
-              </>
-            ) : (
-              <form className="form token-editor room-token-editor" onSubmit={handleRoomTokenSubmit}>
-                <label htmlFor="room-token-editor">채팅방에서 사용할 토큰</label>
-                <textarea
-                  id="room-token-editor"
-                  rows={4}
-                  value={roomTokenDraft}
-                  onChange={(event) => setRoomTokenDraft(event.target.value)}
-                  placeholder="이 채팅방에서 사용할 액세스 토큰을 입력하세요."
-                />
-                <div className="token-editor__actions">
-                  <button type="button" className="secondary" onClick={cancelRoomTokenEdit}>
-                    취소
-                  </button>
-                  <button type="submit" className="primary">
-                    저장
-                  </button>
-                </div>
-              </form>
-            )}
-          </section>
-        )}
+        <div className="chat-panel-tabs" role="tablist" aria-label="채팅 도구 보기 선택">
+          <button
+            type="button"
+            role="tab"
+            id="chat-panel-tab-chat"
+            aria-controls="chat-panel-tabpanel-chat"
+            aria-selected={activeMainTab === 'chat'}
+            className={`chat-panel-tab ${activeMainTab === 'chat' ? 'active' : ''}`}
+            onClick={() => setActiveMainTab('chat')}
+          >
+            채팅
+          </button>
+          <button
+            type="button"
+            role="tab"
+            id="chat-panel-tab-frames"
+            aria-controls="chat-panel-tabpanel-frames"
+            aria-selected={activeMainTab === 'frames'}
+            className={`chat-panel-tab ${activeMainTab === 'frames' ? 'active' : ''}`}
+            onClick={() => setActiveMainTab('frames')}
+          >
+            STOMP 프레임
+          </button>
+        </div>
 
-        {Array.isArray(validationErrors) && validationErrors.length > 0 && (
-          <div className="validation-modal" role="alertdialog" aria-modal="true">
-            <div className="validation-modal__backdrop" />
-            <div className="validation-modal__dialog" role="document">
-              <div className="validation-modal__header">
-                <h3 className="validation-modal__title">메시지 전송에 실패했어요</h3>
+        <div
+          id="chat-panel-tabpanel-chat"
+          role="tabpanel"
+          aria-labelledby="chat-panel-tab-chat"
+          className={`chat-panel-tabpanel ${activeMainTab === 'chat' ? 'active' : ''}`}
+          hidden={activeMainTab !== 'chat'}
+        >
+          {chatRoomId && (
+            <section className="room-token-panel">
+              <div className="room-token-panel__header">
+                <h3>채팅방 전용 토큰</h3>
+                <p className="room-token-panel__description">
+                  이 채팅방에서 사용할 토큰을 직접 지정할 수 있습니다. 토큰을 비워두면 현재 로그인한 계정의 토큰이 사용됩니다.
+                </p>
+              </div>
+              {!isEditingRoomToken ? (
+                <>
+                  <p className="token-preview room-token-panel__preview">{formatTokenPreview(effectiveRoomToken)}</p>
+                  <div className="token-actions room-token-panel__actions">
+                    <button type="button" className="secondary" onClick={beginRoomTokenEdit}>
+                      채팅방 토큰 설정
+                    </button>
+                    {hasRoomTokenOverride && (
+                      <button type="button" className="destructive" onClick={clearRoomToken}>
+                        채팅방 토큰 삭제
+                      </button>
+                    )}
+                  </div>
+                  {hasRoomTokenOverride && (
+                    <p className="room-token-panel__hint">전역 토큰 대신 채팅방 전용 토큰이 적용된 상태입니다.</p>
+                  )}
+                </>
+              ) : (
+                <form className="form token-editor room-token-editor" onSubmit={handleRoomTokenSubmit}>
+                  <label htmlFor="room-token-editor">채팅방에서 사용할 토큰</label>
+                  <textarea
+                    id="room-token-editor"
+                    rows={4}
+                    value={roomTokenDraft}
+                    onChange={(event) => setRoomTokenDraft(event.target.value)}
+                    placeholder="이 채팅방에서 사용할 액세스 토큰을 입력하세요."
+                  />
+                  <div className="token-editor__actions">
+                    <button type="button" className="secondary" onClick={cancelRoomTokenEdit}>
+                      취소
+                    </button>
+                    <button type="submit" className="primary">
+                      저장
+                    </button>
+                  </div>
+                </form>
+              )}
+            </section>
+          )}
+
+          {Array.isArray(validationErrors) && validationErrors.length > 0 && (
+            <div className="validation-modal" role="alertdialog" aria-modal="true">
+              <div className="validation-modal__backdrop" />
+              <div className="validation-modal__dialog" role="document">
+                <div className="validation-modal__header">
+                  <h3 className="validation-modal__title">메시지 전송에 실패했어요</h3>
+                  <button
+                    type="button"
+                    className="validation-modal__close"
+                    onClick={dismissValidationModal}
+                    aria-label="경고 닫기"
+                  >
+                    ×
+                  </button>
+                </div>
+                <p className="validation-modal__description">서버에서 다음과 같은 오류를 전달했습니다:</p>
+                <ul className="validation-modal__list">
+                  {validationErrors.map((message, index) => (
+                    <li key={`${message}-${index}`}>{message}</li>
+                  ))}
+                </ul>
+                <div className="validation-modal__actions">
+                  <button type="button" className="primary" onClick={dismissValidationModal}>
+                    확인
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <section className="chat-session">
+            <div className="message-list-container">
+              {messages.length === 0 ? (
+                <p className="empty-state">표시할 메시지가 없습니다. 먼저 불러오기 버튼을 눌러보세요.</p>
+              ) : (
+                <div className="message-list">
+                  {messages.map((message, index) => {
+                    const imageUrls = getMessageImageUrls(message);
+                    return (
+                      <div
+                        key={message.id ?? `${message.senderName ?? 'unknown'}-${index}`}
+                        className="message-item"
+                      >
+                        <div className="message-header">
+                          <span className="sender">{message.senderName || '알 수 없음'}</span>
+                          {message.profileImgUrl && (
+                            <img src={message.profileImgUrl} alt={message.senderName} className="avatar" />
+                          )}
+                        </div>
+                        {message.content && <p className="message-body">{message.content}</p>}
+                        {imageUrls.length > 0 && (
+                          <div className="message-images">
+                            {imageUrls.map((imageUrl, imageIndex) => (
+                              <a
+                                key={`${message.id ?? index}-image-${imageIndex}`}
+                                className="message-image-wrapper"
+                                href={imageUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                <img src={imageUrl} alt={`메시지 이미지 ${imageIndex + 1}`} className="message-image" />
+                              </a>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <form className="form message-composer" onSubmit={handleSendMessage}>
+              <label htmlFor="newMessage">메시지 보내기</label>
+              <textarea
+                id="newMessage"
+                rows={3}
+                value={newMessage}
+                onChange={(event) => setNewMessage(event.target.value)}
+                placeholder="전송할 메시지를 입력하세요."
+                disabled={connectionStatus !== 'connected'}
+              />
+              <div className="attachment-toolbar">
+                <input
+                  ref={fileInputRef}
+                  className="attachment-input"
+                  type="file"
+                  accept="image/*"
+                  onChange={handleImageSelection}
+                  disabled={connectionStatus !== 'connected' || attachments.length >= 1}
+                />
                 <button
                   type="button"
-                  className="validation-modal__close"
-                  onClick={dismissValidationModal}
-                  aria-label="경고 닫기"
+                  className="secondary"
+                  onClick={handleOpenFilePicker}
+                  disabled={connectionStatus !== 'connected' || attachments.length >= 1}
                 >
-                  ×
+                  이미지 추가
                 </button>
+                {isUploadingAttachments && <span className="attachment-hint">이미지를 업로드하는 중입니다...</span>}
               </div>
-              <p className="validation-modal__description">서버에서 다음과 같은 오류를 전달했습니다:</p>
-              <ul className="validation-modal__list">
-                {validationErrors.map((message, index) => (
-                  <li key={`${message}-${index}`}>{message}</li>
-                ))}
-              </ul>
-              <div className="validation-modal__actions">
-                <button type="button" className="primary" onClick={dismissValidationModal}>
-                  확인
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+              {attachments.length > 0 && (
+                <ul className="attachment-list">
+                  {attachments.map((attachment) => {
+                    let statusLabel = '';
+                    if (attachment.status === 'preparing') {
+                      statusLabel = '업로드 준비 중';
+                    } else if (attachment.status === 'uploading') {
+                      statusLabel = '업로드 중';
+                    } else if (attachment.status === 'uploaded') {
+                      statusLabel = '업로드 완료';
+                    } else if (attachment.status === 'error') {
+                      statusLabel = attachment.errorMessage || '업로드 실패';
+                    }
 
-        <section className="chat-session">
-          <div className="message-list-container">
-            {messages.length === 0 ? (
-              <p className="empty-state">표시할 메시지가 없습니다. 먼저 불러오기 버튼을 눌러보세요.</p>
-            ) : (
-              <div className="message-list">
-                {messages.map((message, index) => {
-                  const imageUrls = getMessageImageUrls(message);
-                  return (
-                    <div
-                      key={message.id ?? `${message.senderName ?? 'unknown'}-${index}`}
-                      className="message-item"
-                    >
-                      <div className="message-header">
-                        <span className="sender">{message.senderName || '알 수 없음'}</span>
-                        {message.profileImgUrl && (
-                          <img src={message.profileImgUrl} alt={message.senderName} className="avatar" />
-                        )}
-                      </div>
-                      {message.content && <p className="message-body">{message.content}</p>}
-                      {imageUrls.length > 0 && (
-                        <div className="message-images">
-                          {imageUrls.map((imageUrl, imageIndex) => (
-                            <a
-                              key={`${message.id ?? index}-image-${imageIndex}`}
-                              className="message-image-wrapper"
-                              href={imageUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                            >
-                              <img src={imageUrl} alt={`메시지 이미지 ${imageIndex + 1}`} className="message-image" />
-                            </a>
-                          ))}
+                    return (
+                      <li key={attachment.localId} className={`attachment-item attachment-item--${attachment.status}`}>
+                        <div className="attachment-preview">
+                          {attachment.previewUrl ? (
+                            <img src={attachment.previewUrl} alt={`${attachment.fileName} 미리보기`} />
+                          ) : (
+                            <div className="attachment-placeholder" aria-hidden="true" />
+                          )}
                         </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+                        <div className="attachment-info">
+                          <span className="attachment-name">{attachment.fileName}</span>
+                          <span className="attachment-meta">{formatFileSize(attachment.fileSize)}</span>
+                          <span className="attachment-status">{statusLabel}</span>
+                        </div>
+                        <button
+                          type="button"
+                          className="attachment-remove"
+                          onClick={() => removeAttachment(attachment.localId)}
+                          aria-label={`${attachment.fileName} 제거`}
+                        >
+                          ×
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+              <button
+                type="submit"
+                className="primary"
+                disabled={connectionStatus !== 'connected' || isUploadingAttachments || hasAttachmentErrors}
+              >
+                전송
+              </button>
+            </form>
+          </section>
+        </div>
 
-          <form className="form message-composer" onSubmit={handleSendMessage}>
-            <label htmlFor="newMessage">메시지 보내기</label>
-            <textarea
-              id="newMessage"
-              rows={3}
-              value={newMessage}
-              onChange={(event) => setNewMessage(event.target.value)}
-              placeholder="전송할 메시지를 입력하세요."
-              disabled={connectionStatus !== 'connected'}
-            />
-            <div className="attachment-toolbar">
-              <input
-                ref={fileInputRef}
-                className="attachment-input"
-                type="file"
-                accept="image/*"
-                onChange={handleImageSelection}
-                disabled={connectionStatus !== 'connected' || attachments.length >= 1}
-              />
+        <div
+          id="chat-panel-tabpanel-frames"
+          role="tabpanel"
+          aria-labelledby="chat-panel-tab-frames"
+          className={`chat-panel-tabpanel chat-panel-tabpanel--frames ${activeMainTab === 'frames' ? 'active' : ''}`}
+          hidden={activeMainTab !== 'frames'}
+        >
+          <section className="frame-log-panel" aria-labelledby="frame-log-title">
+            <div className="frame-log-header">
+              <h3 id="frame-log-title">전송한 STOMP 프레임</h3>
               <button
                 type="button"
-                className="secondary"
-                onClick={handleOpenFilePicker}
-                disabled={connectionStatus !== 'connected' || attachments.length >= 1}
+                className="secondary frame-log-clear"
+                onClick={clearFrameLog}
+                disabled={outgoingFrames.length === 0}
               >
-                이미지 추가
+                로그 비우기
               </button>
-              {isUploadingAttachments && <span className="attachment-hint">이미지를 업로드하는 중입니다...</span>}
             </div>
-            {attachments.length > 0 && (
-              <ul className="attachment-list">
-                {attachments.map((attachment) => {
-                  let statusLabel = '';
-                  if (attachment.status === 'preparing') {
-                    statusLabel = '업로드 준비 중';
-                  } else if (attachment.status === 'uploading') {
-                    statusLabel = '업로드 중';
-                  } else if (attachment.status === 'uploaded') {
-                    statusLabel = '업로드 완료';
-                  } else if (attachment.status === 'error') {
-                    statusLabel = attachment.errorMessage || '업로드 실패';
-                  }
-
-                  return (
-                    <li key={attachment.localId} className={`attachment-item attachment-item--${attachment.status}`}>
-                      <div className="attachment-preview">
-                        {attachment.previewUrl ? (
-                          <img src={attachment.previewUrl} alt={`${attachment.fileName} 미리보기`} />
-                        ) : (
-                          <div className="attachment-placeholder" aria-hidden="true" />
-                        )}
-                      </div>
-                      <div className="attachment-info">
-                        <span className="attachment-name">{attachment.fileName}</span>
-                        <span className="attachment-meta">{formatFileSize(attachment.fileSize)}</span>
-                        <span className="attachment-status">{statusLabel}</span>
-                      </div>
-                      <button
-                        type="button"
-                        className="attachment-remove"
-                        onClick={() => removeAttachment(attachment.localId)}
-                        aria-label={`${attachment.fileName} 제거`}
-                      >
-                        ×
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
+            <p className="frame-log-description">
+              현재 세션에서 전송한 모든 채팅방의 STOMP 프레임을 시간 순으로 모아서 보여줍니다.
+            </p>
+            {frameLogStatus && (
+              <p className="frame-log-status" role="status">{frameLogStatus}</p>
             )}
-            <button
-              type="submit"
-              className="primary"
-              disabled={connectionStatus !== 'connected' || isUploadingAttachments || hasAttachmentErrors}
-            >
-              전송
-            </button>
-          </form>
-        </section>
+            <div className="frame-log-content">
+              {outgoingFrames.length === 0 ? (
+                <p className="frame-log-empty">
+                  아직 전송한 프레임이 없습니다. 채팅을 시작하면 여기에서 확인할 수 있습니다.
+                </p>
+              ) : (
+                <ul className="frame-log-list">
+                  {outgoingFrames.map((frame) => {
+                    const isExpanded = expandedFrameIds.includes(frame.id);
+                    const displayRaw = (frame.raw || '').split('\u0000').join('␀');
+                    return (
+                      <li key={frame.id} className={`frame-log-item ${isExpanded ? 'expanded' : ''}`}>
+                        <button
+                          type="button"
+                          className="frame-log-toggle"
+                          onClick={() => toggleFrameExpansion(frame.id)}
+                          aria-expanded={isExpanded}
+                        >
+                          <span className="frame-log-command">{frame.command}</span>
+                          <span className="frame-log-meta">
+                            <span className="frame-log-time">{formatTimestamp(frame.timestamp)}</span>
+                            <span className="frame-log-chevron" aria-hidden="true">{isExpanded ? '▴' : '▾'}</span>
+                          </span>
+                        </button>
+                        {isExpanded && (
+                          <div className="frame-log-details">
+                            <pre className="frame-log-raw">{displayRaw}</pre>
+                            <button
+                              type="button"
+                              className="secondary frame-log-copy"
+                              onClick={() => handleCopyFrame(frame.raw)}
+                            >
+                              프레임 복사
+                            </button>
+                          </div>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          </section>
+        </div>
       </div>
-      <aside className="chat-panel-sidebar" aria-label="채팅방 및 STOMP 기록">
+      <aside className="chat-panel-sidebar" aria-label="채팅방 목록">
         <div className="card chat-room-panel" aria-labelledby="chat-room-panel-title">
           <div className="chat-room-section-header">
             <h3 id="chat-room-panel-title">열려 있는 채팅방</h3>
@@ -1107,64 +1211,6 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
                 </li>
               ))}
             </ul>
-          </div>
-        </div>
-        <div className="card frame-log-panel" aria-labelledby="frame-log-title">
-          <div className="frame-log-header">
-            <h3 id="frame-log-title">전송한 STOMP 프레임</h3>
-            <button
-              type="button"
-              className="secondary frame-log-clear"
-              onClick={clearFrameLog}
-              disabled={outgoingFrames.length === 0}
-            >
-              로그 비우기
-            </button>
-          </div>
-          {frameLogStatus && (
-            <p className="frame-log-status" role="status">{frameLogStatus}</p>
-          )}
-          <div className="frame-log-content">
-            {outgoingFrames.length === 0 ? (
-              <p className="frame-log-empty">
-                아직 전송한 프레임이 없습니다. 채팅을 시작하면 여기에서 확인할 수 있습니다.
-              </p>
-            ) : (
-              <ul className="frame-log-list">
-                {outgoingFrames.map((frame) => {
-                  const isExpanded = expandedFrameIds.includes(frame.id);
-                  const displayRaw = (frame.raw || '').replace(/\u0000/g, '␀');
-                  return (
-                    <li key={frame.id} className={`frame-log-item ${isExpanded ? 'expanded' : ''}`}>
-                      <button
-                        type="button"
-                        className="frame-log-toggle"
-                        onClick={() => toggleFrameExpansion(frame.id)}
-                        aria-expanded={isExpanded}
-                      >
-                        <span className="frame-log-command">{frame.command}</span>
-                        <span className="frame-log-meta">
-                          <span className="frame-log-time">{formatTimestamp(frame.timestamp)}</span>
-                          <span className="frame-log-chevron" aria-hidden="true">{isExpanded ? '▴' : '▾'}</span>
-                        </span>
-                      </button>
-                      {isExpanded && (
-                        <div className="frame-log-details">
-                          <pre className="frame-log-raw">{displayRaw}</pre>
-                          <button
-                            type="button"
-                            className="secondary frame-log-copy"
-                            onClick={() => handleCopyFrame(frame.raw)}
-                          >
-                            프레임 복사
-                          </button>
-                        </div>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
           </div>
         </div>
       </aside>
