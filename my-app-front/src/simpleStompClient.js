@@ -35,7 +35,7 @@ function parseFrames(raw) {
 }
 
 export class SimpleStompClient {
-  constructor(url) {
+  constructor(url, options = {}) {
     this.url = url;
     this.socket = null;
     this.subscriptionId = 0;
@@ -43,6 +43,52 @@ export class SimpleStompClient {
     this.connected = false;
     this.onConnect = () => {};
     this.onError = () => {};
+    this.onFrameSent = typeof options.onFrameSent === 'function' ? options.onFrameSent : null;
+  }
+
+  setFrameSentListener(listener) {
+    this.onFrameSent = typeof listener === 'function' ? listener : null;
+  }
+
+  reportFrameSent(command, headers, body, raw) {
+    const payload = {
+      command,
+      headers: { ...headers },
+      body,
+      raw,
+      timestamp: Date.now(),
+    };
+
+    try {
+      // eslint-disable-next-line no-console
+      console.log(`[STOMP >>>] ${command}`, { headers: payload.headers, body: payload.body });
+    } catch (error) {
+      // ignore logging errors
+    }
+
+    if (typeof this.onFrameSent === 'function') {
+      try {
+        this.onFrameSent(payload);
+      } catch (error) {
+        console.warn('Failed to notify frame listener', error);
+      }
+    }
+  }
+
+  transmitFrame(command, headers = {}, body = '') {
+    if (!this.socket) {
+      throw new Error('WebSocket is not connected');
+    }
+
+    const frame = serializeFrame(command, headers, body);
+
+    try {
+      this.socket.send(frame);
+    } finally {
+      this.reportFrameSent(command, headers, body, frame);
+    }
+
+    return frame;
   }
 
   connect(headers = {}, onConnect = () => {}, onError = () => {}) {
@@ -55,12 +101,16 @@ export class SimpleStompClient {
     this.socket = new WebSocket(this.url);
 
     this.socket.onopen = () => {
-      const frame = serializeFrame('CONNECT', {
+      const frameHeaders = {
         'accept-version': '1.2',
         'heart-beat': '0,0',
         ...headers,
-      });
-      this.socket.send(frame);
+      };
+      try {
+        this.transmitFrame('CONNECT', frameHeaders);
+      } catch (error) {
+        console.error('Failed to send CONNECT frame', error);
+      }
     };
 
     this.socket.onmessage = (event) => {
@@ -95,12 +145,11 @@ export class SimpleStompClient {
       throw new Error('WebSocket is not connected');
     }
     const id = `sub-${this.subscriptionId += 1}`;
-    const frame = serializeFrame('SUBSCRIBE', {
+    this.transmitFrame('SUBSCRIBE', {
       id,
       destination,
       ack: 'auto',
     });
-    this.socket.send(frame);
     this.subscriptions.set(id, callback);
     return id;
   }
@@ -109,8 +158,7 @@ export class SimpleStompClient {
     if (!this.socket || !this.subscriptions.has(id)) {
       return;
     }
-    const frame = serializeFrame('UNSUBSCRIBE', { id });
-    this.socket.send(frame);
+    this.transmitFrame('UNSUBSCRIBE', { id });
     this.subscriptions.delete(id);
   }
 
@@ -118,19 +166,21 @@ export class SimpleStompClient {
     if (!this.socket) {
       throw new Error('WebSocket is not connected');
     }
-    const frame = serializeFrame('SEND', {
-      destination,
-      'content-type': 'application/json',
-      ...headers,
-    }, body);
-    this.socket.send(frame);
+    this.transmitFrame(
+      'SEND',
+      {
+        destination,
+        'content-type': 'application/json',
+        ...headers,
+      },
+      body,
+    );
   }
 
   disconnect() {
     if (this.socket) {
       try {
-        const frame = serializeFrame('DISCONNECT');
-        this.socket.send(frame);
+        this.transmitFrame('DISCONNECT');
       } catch (error) {
         // ignore errors during disconnect
       }
