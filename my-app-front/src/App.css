@@ -465,9 +465,32 @@ button:not(:disabled):hover {
   margin-top: 1.25rem;
 }
 
+.fcm-form__description {
+  margin: 0;
+  color: #4f5d75;
+  line-height: 1.6;
+}
+
 .fcm-form__label {
   font-weight: 600;
   color: #1f2933;
+}
+
+.fcm-form__hint {
+  margin: 0;
+  color: #b91c1c;
+  background: #fef2f2;
+  border-radius: 10px;
+  padding: 0.65rem 0.85rem;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.fcm-token-display {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 1.5rem;
 }
 
 .fcm-form__textarea {
