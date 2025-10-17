@@ -48,6 +48,38 @@ export async function logout(accessToken) {
   }
 }
 
+export async function saveFcmToken({ token, accessToken }) {
+  const response = await fetch(`${BACKEND_BASE_URL}/api/fcm`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ fcmToken: token }),
+  });
+
+  if (!response.ok) {
+    const errorBody = await handleJsonResponse(response);
+    throw new Error(errorBody?.message || 'FCM 토큰 저장에 실패했습니다.');
+  }
+}
+
+export async function requestFcmTestNotification({ accessToken }) {
+  const response = await fetch(`${BACKEND_BASE_URL}/api/fcm`, {
+    method: 'GET',
+    credentials: 'include',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!response.ok) {
+    const errorBody = await handleJsonResponse(response);
+    throw new Error(errorBody?.message || '테스트 알림 전송에 실패했습니다.');
+  }
+}
+
 export async function getOrCreateChatRoom({ festivalId, accessToken }) {
   const response = await fetch(`${BACKEND_BASE_URL}/api/festivals/${festivalId}/chatRooms`, {
     method: 'POST',

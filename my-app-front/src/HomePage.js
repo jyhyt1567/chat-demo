@@ -4,6 +4,7 @@ import LoginButtons from './LoginButtons';
 import TokenDisplay from './TokenDisplay';
 import { logout } from './api';
 import { useAuth } from './context';
+import FcmTestPanel from './FcmTestPanel';
 
 export default function HomePage({ navigate }) {
   const { accessToken, clearAccessToken } = useAuth();
@@ -56,6 +57,8 @@ export default function HomePage({ navigate }) {
           </button>
         </div>
       )}
+
+      {accessToken && <FcmTestPanel accessToken={accessToken} />}
 
       {accessToken ? (
         <ChatRoomPanel accessToken={accessToken} onLogout={handleLogout} />
