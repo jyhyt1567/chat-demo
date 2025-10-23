@@ -41,6 +41,7 @@ export class SimpleStompClient {
     this.subscriptionId = 0;
     this.subscriptions = new Map();
     this.connected = false;
+    this.pendingFrames = [];
     this.onConnect = () => {};
     this.onError = () => {};
     this.onFrameSent = typeof options.onFrameSent === 'function' ? options.onFrameSent : null;
@@ -75,9 +76,41 @@ export class SimpleStompClient {
     }
   }
 
+  canSendFrames() {
+    return (
+      this.socket &&
+      this.socket.readyState === WebSocket.OPEN &&
+      this.connected === true
+    );
+  }
+
+  flushPendingFrames() {
+    if (!this.canSendFrames()) {
+      return;
+    }
+
+    while (this.pendingFrames.length > 0) {
+      const { command, headers, body } = this.pendingFrames.shift();
+      this.transmitFrame(command, headers, body);
+    }
+  }
+
+  queueFrame(command, headers = {}, body = '') {
+    if (this.canSendFrames()) {
+      this.transmitFrame(command, headers, body);
+      return;
+    }
+
+    this.pendingFrames.push({ command, headers: { ...headers }, body });
+  }
+
   transmitFrame(command, headers = {}, body = '') {
     if (!this.socket) {
       throw new Error('WebSocket is not connected');
+    }
+
+    if (this.socket.readyState !== WebSocket.OPEN) {
+      throw new Error('WebSocket connection is not open');
     }
 
     const frame = serializeFrame(command, headers, body);
@@ -117,6 +150,7 @@ export class SimpleStompClient {
       parseFrames(event.data).forEach((frame) => {
         if (frame.command === 'CONNECTED') {
           this.connected = true;
+          this.flushPendingFrames();
           this.onConnect(frame);
         } else if (frame.command === 'MESSAGE') {
           const subscription = frame.headers.subscription;
@@ -137,6 +171,7 @@ export class SimpleStompClient {
     this.socket.onclose = () => {
       this.connected = false;
       this.subscriptions.clear();
+      this.pendingFrames = [];
     };
   }
 
@@ -145,7 +180,7 @@ export class SimpleStompClient {
       throw new Error('WebSocket is not connected');
     }
     const id = `sub-${this.subscriptionId += 1}`;
-    this.transmitFrame('SUBSCRIBE', {
+    this.queueFrame('SUBSCRIBE', {
       id,
       destination,
       ack: 'auto',
@@ -158,7 +193,7 @@ export class SimpleStompClient {
     if (!this.socket || !this.subscriptions.has(id)) {
       return;
     }
-    this.transmitFrame('UNSUBSCRIBE', { id });
+    this.queueFrame('UNSUBSCRIBE', { id });
     this.subscriptions.delete(id);
   }
 
@@ -166,7 +201,7 @@ export class SimpleStompClient {
     if (!this.socket) {
       throw new Error('WebSocket is not connected');
     }
-    this.transmitFrame(
+    this.queueFrame(
       'SEND',
       {
         destination,
@@ -180,7 +215,9 @@ export class SimpleStompClient {
   disconnect() {
     if (this.socket) {
       try {
-        this.transmitFrame('DISCONNECT');
+        if (this.socket.readyState === WebSocket.OPEN && this.connected) {
+          this.transmitFrame('DISCONNECT');
+        }
       } catch (error) {
         // ignore errors during disconnect
       }
@@ -188,6 +225,7 @@ export class SimpleStompClient {
       this.socket = null;
       this.connected = false;
       this.subscriptions.clear();
+      this.pendingFrames = [];
     }
   }
 }
