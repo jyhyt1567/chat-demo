@@ -784,7 +784,7 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
         errorSubscriptionRef.current = client.subscribe('/user/queue/errors', (body) => {
           handleValidationPayload(body);
         });
-        unreadSubscriptionRef.current = client.subscribe('/user/unreads', (body) => {
+        unreadSubscriptionRef.current = client.subscribe('/user/queue/unreads', (body) => {
           handleUnreadNotification(body);
         });
         setStatusMessage('실시간 알림 채널에 연결되었습니다.');
