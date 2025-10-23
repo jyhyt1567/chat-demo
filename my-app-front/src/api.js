@@ -115,6 +115,25 @@ export async function fetchChatRooms({ page = 0, size = 15, accessToken }) {
   return data;
 }
 
+export async function fetchMyChatRoomsReadStatus({ page = 0, size = 15, accessToken }) {
+  const params = new URLSearchParams({ page: String(page), size: String(size) });
+  const response = await fetch(`${BACKEND_BASE_URL}/api/chatRooms/me?${params.toString()}`, {
+    method: 'GET',
+    credentials: 'include',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!response.ok) {
+    const errorBody = await handleJsonResponse(response);
+    throw new Error(errorBody?.message || '내 채팅방 정보를 불러오지 못했습니다.');
+  }
+
+  const data = await handleJsonResponse(response);
+  return data;
+}
+
 export async function requestImageUploadSlot({ accessToken } = {}) {
   const response = await fetch(`${BACKEND_BASE_URL}/api/presigned-url`, {
     method: 'GET',
