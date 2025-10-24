@@ -1,6 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BACKEND_BASE_URL } from './config';
-import { fetchChatRooms, fetchMessages, getOrCreateChatRoom, requestImageUploadSlot } from './api';
+import {
+  fetchChatRooms,
+  fetchMessages,
+  fetchMyChatRoomsReadStatus,
+  getOrCreateChatRoom,
+  requestImageUploadSlot,
+} from './api';
 import { SimpleStompClient } from './simpleStompClient';
 
 const ROOM_TOKEN_STORAGE_KEY = 'festapick_room_tokens';
@@ -253,9 +259,11 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
   const [expandedFrameIds, setExpandedFrameIds] = useState([]);
   const [frameLogStatus, setFrameLogStatus] = useState('');
   const [activeMainTab, setActiveMainTab] = useState('chat');
+  const [connectionToken, setConnectionToken] = useState(() => accessToken ?? null);
   const clientRef = useRef(null);
   const subscriptionRef = useRef(null);
   const errorSubscriptionRef = useRef(null);
+  const unreadSubscriptionRef = useRef(null);
   const fileInputRef = useRef(null);
   const attachmentsRef = useRef([]);
   const frameCounterRef = useRef(0);
@@ -344,6 +352,25 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
     },
     [roomTokens, accessToken],
   );
+
+  useEffect(() => {
+    if (!accessToken) {
+      setConnectionToken(null);
+      return;
+    }
+
+    if (!chatRoomId) {
+      setConnectionToken(accessToken);
+      return;
+    }
+
+    const tokenForRoom = getRoomToken(chatRoomId);
+    if (typeof tokenForRoom === 'string' && tokenForRoom.trim().length > 0) {
+      setConnectionToken(tokenForRoom.trim());
+    } else {
+      setConnectionToken(accessToken);
+    }
+  }, [accessToken, chatRoomId, getRoomToken]);
 
   const updateAttachment = useCallback((localId, updater) => {
     setAttachments((prev) =>
@@ -532,23 +559,47 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
     }
   }, [setStatusMessage]);
 
+  const sendReadReceipt = useCallback((roomId) => {
+    const client = clientRef.current;
+    if (!client || !roomId) {
+      return;
+    }
+    try {
+      client.send(`/pub/${roomId}/read`, JSON.stringify({}));
+    } catch (error) {
+      console.warn('Failed to send read receipt', error);
+    }
+  }, []);
+
   const refreshChatRooms = useCallback(async () => {
     if (!accessToken) {
       return;
     }
     setIsLoadingChatRooms(true);
     setChatRoomsMessage('채팅방 목록을 불러오는 중입니다...');
+
+    const sortByRoomId = (items) =>
+      [...items].sort((a, b) => {
+        const idA = typeof a?.roomId === 'number' ? a.roomId : Number(a?.roomId);
+        const idB = typeof b?.roomId === 'number' ? b.roomId : Number(b?.roomId);
+        if (Number.isFinite(idA) && Number.isFinite(idB)) {
+          return idA - idB;
+        }
+        return 0;
+      });
+
     try {
-      const data = await fetchChatRooms({ page: 0, size: 15, accessToken });
-      const rooms = Array.isArray(data?.content)
-        ? [...data.content].sort((a, b) => {
-            const idA = typeof a?.roomId === 'number' ? a.roomId : Number(a?.roomId);
-            const idB = typeof b?.roomId === 'number' ? b.roomId : Number(b?.roomId);
-            if (Number.isFinite(idA) && Number.isFinite(idB)) {
-              return idA - idB;
-            }
-            return 0;
-          })
+      const page = await fetchMyChatRoomsReadStatus({ page: 0, size: 15, accessToken });
+      const rooms = Array.isArray(page?.content)
+        ? sortByRoomId(
+            page.content.map((room) => ({
+              roomId: room?.roomId ?? room?.id ?? null,
+              roomName: room?.roomName,
+              festivalId: room?.festivalId,
+              posterInfo: room?.posterInfo,
+              existNewMessage: Boolean(room?.existNewMessage),
+            })),
+          )
         : [];
       setChatRooms(rooms);
       if (rooms.length === 0) {
@@ -556,13 +607,119 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
       } else {
         setChatRoomsMessage(`총 ${rooms.length}개의 채팅방을 확인했습니다. 목록에서 대화를 시작할 방을 선택하세요.`);
       }
-    } catch (error) {
-      setChatRooms([]);
-      setChatRoomsMessage(error.message);
+    } catch (primaryError) {
+      try {
+        const data = await fetchChatRooms({ page: 0, size: 15, accessToken });
+        const rooms = Array.isArray(data?.content)
+          ? sortByRoomId(
+              data.content.map((room) => ({
+                ...room,
+                existNewMessage: Boolean(room?.existNewMessage),
+              })),
+            )
+          : [];
+        setChatRooms(rooms);
+        if (rooms.length === 0) {
+          setChatRoomsMessage('현재 참여 중인 채팅방이 없습니다. 축제 ID로 새 채팅방을 만들어보세요.');
+        } else {
+          setChatRoomsMessage(`총 ${rooms.length}개의 채팅방을 확인했습니다. 목록에서 대화를 시작할 방을 선택하세요.`);
+        }
+      } catch (fallbackError) {
+        setChatRooms([]);
+        setChatRoomsMessage(fallbackError?.message || primaryError?.message || '채팅방 목록을 불러오지 못했습니다.');
+      }
     } finally {
       setIsLoadingChatRooms(false);
     }
   }, [accessToken]);
+
+  const handleValidationPayload = useCallback((body) => {
+    try {
+      const payload = JSON.parse(body);
+      const fieldErrors = Array.isArray(payload?.fieldErrors)
+        ? payload.fieldErrors.flatMap((item) =>
+            Object.entries(item || {}).map(([field, message]) => `${field}: ${message || 'Invalid value'}`),
+          )
+        : [];
+      const globalErrors = Array.isArray(payload?.globalErrors)
+        ? payload.globalErrors.flatMap((item) =>
+            Object.entries(item || {}).map(([, message]) => message || 'Invalid value'),
+          )
+        : [];
+      const messagesToShow = [...globalErrors, ...fieldErrors];
+      setValidationErrors(
+        messagesToShow.length > 0
+          ? messagesToShow
+          : ['알 수 없는 오류가 발생했습니다. 다시 시도해주세요.'],
+      );
+    } catch (error) {
+      console.warn('Failed to parse validation error payload', error);
+      setValidationErrors([
+        '서버에서 전달된 오류 메시지를 처리하지 못했습니다. 잠시 후 다시 시도해주세요.',
+      ]);
+    }
+  }, []);
+
+  const handleUnreadNotification = useCallback(
+    (body) => {
+      try {
+        const payload = JSON.parse(body);
+        const notifiedRoomId = payload?.chatRoomId ?? payload?.roomId;
+        if (notifiedRoomId === undefined || notifiedRoomId === null) {
+          return;
+        }
+
+        const numericRoomId = Number(notifiedRoomId);
+        const normalizedRoomId = Number.isFinite(numericRoomId) ? numericRoomId : notifiedRoomId;
+
+        if (chatRoomId && Number(chatRoomId) === numericRoomId) {
+          setChatRooms((prev) =>
+            prev.map((room) => {
+              const current = Number(room?.roomId);
+              if (Number.isFinite(current) && Number.isFinite(numericRoomId) && current === numericRoomId) {
+                return { ...room, existNewMessage: false };
+              }
+              if (!Number.isFinite(current) && room?.roomId === normalizedRoomId) {
+                return { ...room, existNewMessage: false };
+              }
+              return room;
+            }),
+          );
+          sendReadReceipt(notifiedRoomId);
+          setStatusMessage(`채팅방 #${notifiedRoomId}에서 들어온 새 메시지를 읽음 처리했습니다.`);
+          return;
+        }
+
+        let shouldRefresh = false;
+        setChatRooms((prev) => {
+          let found = false;
+          const next = prev.map((room) => {
+            const current = Number(room?.roomId);
+            const isSame = Number.isFinite(numericRoomId)
+              ? Number.isFinite(current) && current === numericRoomId
+              : room?.roomId === normalizedRoomId;
+            if (isSame) {
+              found = true;
+              return { ...room, existNewMessage: true };
+            }
+            return room;
+          });
+          if (!found) {
+            shouldRefresh = true;
+            return prev;
+          }
+          return next;
+        });
+        if (shouldRefresh) {
+          refreshChatRooms();
+        }
+        setStatusMessage(`채팅방 #${notifiedRoomId}에 새 메시지가 도착했습니다.`);
+      } catch (error) {
+        console.warn('Failed to process unread notification', error);
+      }
+    },
+    [chatRoomId, refreshChatRooms, sendReadReceipt],
+  );
 
   useEffect(() => {
     if (!accessToken) {
@@ -581,62 +738,67 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
   useEffect(() => {
     clearFrameLog();
 
-    if (!chatRoomId) {
+    const existingClient = clientRef.current;
+    if (!connectionToken) {
+      if (subscriptionRef.current && existingClient) {
+        existingClient.unsubscribe(subscriptionRef.current);
+        subscriptionRef.current = null;
+      }
+      if (errorSubscriptionRef.current && existingClient) {
+        existingClient.unsubscribe(errorSubscriptionRef.current);
+        errorSubscriptionRef.current = null;
+      }
+      if (unreadSubscriptionRef.current && existingClient) {
+        existingClient.unsubscribe(unreadSubscriptionRef.current);
+        unreadSubscriptionRef.current = null;
+      }
+      if (existingClient) {
+        existingClient.disconnect();
+        clientRef.current = null;
+      }
+      setConnectionStatus('disconnected');
+      setValidationErrors(null);
       return undefined;
     }
 
-    const effectiveToken = getRoomToken(chatRoomId);
     const client = new SimpleStompClient(websocketUrl, { onFrameSent: handleFrameSent });
     clientRef.current = client;
     setConnectionStatus('connecting');
 
-    const headers = effectiveToken ? { Authorization: `Bearer ${effectiveToken}` } : {};
+    const headers = connectionToken ? { Authorization: `Bearer ${connectionToken}` } : {};
+    let isActive = true;
 
     client.connect(
       headers,
       () => {
+        if (!isActive) {
+          return;
+        }
         setConnectionStatus('connected');
-        subscriptionRef.current = client.subscribe(`/sub/${chatRoomId}/messages`, (body) => {
-          try {
-            const payload = JSON.parse(body);
-            setMessages((prev) => mergeMessagesById(prev, [payload]));
-          } catch (error) {
-            console.warn('Failed to parse incoming message', error);
-          }
-        });
+        if (errorSubscriptionRef.current) {
+          client.unsubscribe(errorSubscriptionRef.current);
+        }
+        if (unreadSubscriptionRef.current) {
+          client.unsubscribe(unreadSubscriptionRef.current);
+        }
         errorSubscriptionRef.current = client.subscribe('/user/queue/errors', (body) => {
-          try {
-            const payload = JSON.parse(body);
-            const fieldErrors = Array.isArray(payload?.fieldErrors)
-              ? payload.fieldErrors.flatMap((item) =>
-                  Object.entries(item || {}).map(([field, message]) => `${field}: ${message || 'Invalid value'}`),
-                )
-              : [];
-            const globalErrors = Array.isArray(payload?.globalErrors)
-              ? payload.globalErrors.flatMap((item) =>
-                  Object.entries(item || {}).map(([, message]) => message || 'Invalid value'),
-                )
-              : [];
-            const messagesToShow = [...globalErrors, ...fieldErrors];
-            setValidationErrors(
-              messagesToShow.length > 0
-                ? messagesToShow
-                : ['알 수 없는 오류가 발생했습니다. 다시 시도해주세요.'],
-            );
-          } catch (error) {
-            console.warn('Failed to parse validation error payload', error);
-            setValidationErrors([
-              '서버에서 전달된 오류 메시지를 처리하지 못했습니다. 잠시 후 다시 시도해주세요.',
-            ]);
-          }
+          handleValidationPayload(body);
         });
+        unreadSubscriptionRef.current = client.subscribe('/user/queue/unreads', (body) => {
+          handleUnreadNotification(body);
+        });
+        setStatusMessage('실시간 알림 채널에 연결되었습니다.');
       },
       () => {
+        if (!isActive) {
+          return;
+        }
         setConnectionStatus('error');
       },
     );
 
     return () => {
+      isActive = false;
       if (subscriptionRef.current) {
         client.unsubscribe(subscriptionRef.current);
         subscriptionRef.current = null;
@@ -645,12 +807,68 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
         client.unsubscribe(errorSubscriptionRef.current);
         errorSubscriptionRef.current = null;
       }
+      if (unreadSubscriptionRef.current) {
+        client.unsubscribe(unreadSubscriptionRef.current);
+        unreadSubscriptionRef.current = null;
+      }
       client.disconnect();
-      clientRef.current = null;
+      if (clientRef.current === client) {
+        clientRef.current = null;
+      }
       setConnectionStatus('disconnected');
       setValidationErrors(null);
     };
-  }, [chatRoomId, websocketUrl, getRoomToken, clearFrameLog, handleFrameSent]);
+  }, [
+    connectionToken,
+    websocketUrl,
+    clearFrameLog,
+    handleFrameSent,
+    handleUnreadNotification,
+    handleValidationPayload,
+  ]);
+
+  useEffect(() => {
+    const client = clientRef.current;
+    if (!client || connectionStatus !== 'connected') {
+      if (subscriptionRef.current && client) {
+        client.unsubscribe(subscriptionRef.current);
+        subscriptionRef.current = null;
+      }
+      return undefined;
+    }
+
+    if (!chatRoomId) {
+      if (subscriptionRef.current) {
+        client.unsubscribe(subscriptionRef.current);
+        subscriptionRef.current = null;
+      }
+      return undefined;
+    }
+
+    if (subscriptionRef.current) {
+      client.unsubscribe(subscriptionRef.current);
+      subscriptionRef.current = null;
+    }
+
+    const subscriptionId = client.subscribe(`/sub/${chatRoomId}/messages`, (body) => {
+      try {
+        const payload = JSON.parse(body);
+        setMessages((prev) => mergeMessagesById(prev, [payload]));
+      } catch (error) {
+        console.warn('Failed to parse incoming message', error);
+      }
+    });
+    subscriptionRef.current = subscriptionId;
+
+    return () => {
+      if (subscriptionId && client) {
+        client.unsubscribe(subscriptionId);
+      }
+      if (subscriptionRef.current === subscriptionId) {
+        subscriptionRef.current = null;
+      }
+    };
+  }, [chatRoomId, connectionStatus]);
 
   const openChatRoom = useCallback(async (roomId) => {
     if (!roomId) {
@@ -679,11 +897,25 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
       setChatRoomId(roomId);
       setMessages(mergeMessagesById([], payloads));
       setMessagePage(1);
+      setChatRooms((prev) =>
+        prev.map((room) => {
+          const numericRoomId = Number(room?.roomId);
+          const targetId = Number(roomId);
+          if (Number.isFinite(numericRoomId) && Number.isFinite(targetId) && numericRoomId === targetId) {
+            return { ...room, existNewMessage: false };
+          }
+          if (!Number.isFinite(numericRoomId) && room?.roomId === roomId) {
+            return { ...room, existNewMessage: false };
+          }
+          return room;
+        }),
+      );
+      sendReadReceipt(roomId);
       setStatusMessage(`채팅방 #${roomId}을 열었습니다. 최근 ${payloads.length}개의 메시지를 확인했습니다.`);
     } catch (error) {
       setStatusMessage(error.message);
     }
-  }, [getRoomToken]);
+  }, [getRoomToken, sendReadReceipt]);
 
   const handleSelectChatRoom = async (roomId) => {
     if (roomId === chatRoomId) {
@@ -1205,7 +1437,10 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
                     className={`chat-room-button ${room.roomId === chatRoomId ? 'active' : ''}`}
                     onClick={() => handleSelectChatRoom(room.roomId)}
                   >
-                    <span className="chat-room-title">{room.roomName || `채팅방 #${room.roomId}`}</span>
+                    <div className="chat-room-button__header">
+                      <span className="chat-room-title">{room.roomName || `채팅방 #${room.roomId}`}</span>
+                      {room.existNewMessage && <span className="chat-room-badge">새 메시지</span>}
+                    </div>
                     <span className="chat-room-meta">축제 ID: {room.festivalId ?? '정보 없음'}</span>
                   </button>
                 </li>
