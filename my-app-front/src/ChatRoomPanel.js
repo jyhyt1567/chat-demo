@@ -264,7 +264,6 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
   const subscriptionRef = useRef(null);
   const errorSubscriptionRef = useRef(null);
   const unreadSubscriptionRef = useRef(null);
-  const readSubscriptionRef = useRef(null);
   const fileInputRef = useRef(null);
   const attachmentsRef = useRef([]);
   const frameCounterRef = useRef(0);
@@ -661,50 +660,6 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
     }
   }, []);
 
-  const handleReadNotification = useCallback(
-    (body) => {
-      try {
-        const payload = JSON.parse(body);
-        const notifiedRoomId = payload?.chatRoomId ?? payload?.roomId;
-        if (notifiedRoomId === undefined || notifiedRoomId === null) {
-          return;
-        }
-
-        const numericRoomId = Number(notifiedRoomId);
-        const normalizedRoomId = Number.isFinite(numericRoomId) ? numericRoomId : notifiedRoomId;
-
-        let updated = false;
-        setChatRooms((prev) => {
-          const next = prev.map((room) => {
-            const current = Number(room?.roomId);
-            const isSame = Number.isFinite(numericRoomId)
-              ? Number.isFinite(current) && current === numericRoomId
-              : room?.roomId === normalizedRoomId;
-            if (!isSame || room?.existNewMessage === false) {
-              return room;
-            }
-            updated = true;
-            return { ...room, existNewMessage: false };
-          });
-          return updated ? next : prev;
-        });
-
-        const isCurrentRoom = chatRoomId
-          ? Number.isFinite(numericRoomId)
-            ? Number(chatRoomId) === numericRoomId
-            : String(chatRoomId) === String(normalizedRoomId)
-          : false;
-
-        if (updated || isCurrentRoom) {
-          setStatusMessage(`채팅방 #${notifiedRoomId}의 읽음 상태가 다른 기기와 동기화되었습니다.`);
-        }
-      } catch (error) {
-        console.warn('Failed to process read notification', error);
-      }
-    },
-    [chatRoomId],
-  );
-
   const handleUnreadNotification = useCallback(
     (body) => {
       try {
@@ -797,10 +752,6 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
         existingClient.unsubscribe(unreadSubscriptionRef.current);
         unreadSubscriptionRef.current = null;
       }
-      if (readSubscriptionRef.current && existingClient) {
-        existingClient.unsubscribe(readSubscriptionRef.current);
-        readSubscriptionRef.current = null;
-      }
       if (existingClient) {
         existingClient.disconnect();
         clientRef.current = null;
@@ -830,17 +781,11 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
         if (unreadSubscriptionRef.current) {
           client.unsubscribe(unreadSubscriptionRef.current);
         }
-        if (readSubscriptionRef.current) {
-          client.unsubscribe(readSubscriptionRef.current);
-        }
         errorSubscriptionRef.current = client.subscribe('/user/queue/errors', (body) => {
           handleValidationPayload(body);
         });
         unreadSubscriptionRef.current = client.subscribe('/user/queue/unreads', (body) => {
           handleUnreadNotification(body);
-        });
-        readSubscriptionRef.current = client.subscribe('/user/queue/reads', (body) => {
-          handleReadNotification(body);
         });
         setStatusMessage('실시간 알림 채널에 연결되었습니다.');
       },
@@ -866,10 +811,6 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
         client.unsubscribe(unreadSubscriptionRef.current);
         unreadSubscriptionRef.current = null;
       }
-      if (readSubscriptionRef.current) {
-        client.unsubscribe(readSubscriptionRef.current);
-        readSubscriptionRef.current = null;
-      }
       client.disconnect();
       if (clientRef.current === client) {
         clientRef.current = null;
@@ -883,7 +824,6 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
     clearFrameLog,
     handleFrameSent,
     handleUnreadNotification,
-    handleReadNotification,
     handleValidationPayload,
   ]);
 

@@ -155,8 +155,8 @@ export class SimpleStompClient {
         } else if (frame.command === 'MESSAGE') {
           const subscription = frame.headers.subscription;
           const handler = this.subscriptions.get(subscription);
-          if (handler) {
-            handler(frame.body, frame);
+          if (handler?.callback) {
+            handler.callback(frame.body, frame);
           }
         } else if (frame.command === 'ERROR') {
           this.onError(frame);
@@ -185,7 +185,7 @@ export class SimpleStompClient {
       destination,
       ack: 'auto',
     });
-    this.subscriptions.set(id, callback);
+    this.subscriptions.set(id, { callback, destination });
     return id;
   }
 
@@ -193,7 +193,12 @@ export class SimpleStompClient {
     if (!this.socket || !this.subscriptions.has(id)) {
       return;
     }
-    this.queueFrame('UNSUBSCRIBE', { id });
+    const { destination } = this.subscriptions.get(id) || {};
+    const headers = { id };
+    if (destination) {
+      headers.destination = destination;
+    }
+    this.queueFrame('UNSUBSCRIBE', headers);
     this.subscriptions.delete(id);
   }
 
