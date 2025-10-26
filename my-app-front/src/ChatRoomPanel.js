@@ -560,18 +560,6 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
     }
   }, [setStatusMessage]);
 
-  const sendReadReceipt = useCallback((roomId) => {
-    const client = clientRef.current;
-    if (!client || !roomId) {
-      return;
-    }
-    try {
-      client.send(`/pub/${roomId}/read`, JSON.stringify({}));
-    } catch (error) {
-      console.warn('Failed to send read receipt', error);
-    }
-  }, []);
-
   const refreshChatRooms = useCallback(async () => {
     if (!accessToken) {
       return;
@@ -730,7 +718,6 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
               return room;
             }),
           );
-          sendReadReceipt(notifiedRoomId);
           setStatusMessage(`채팅방 #${notifiedRoomId}에서 들어온 새 메시지를 읽음 처리했습니다.`);
           return;
         }
@@ -763,7 +750,7 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
         console.warn('Failed to process unread notification', error);
       }
     },
-    [chatRoomId, refreshChatRooms, sendReadReceipt],
+    [chatRoomId, refreshChatRooms],
   );
 
   useEffect(() => {
@@ -970,12 +957,11 @@ export default function ChatRoomPanel({ accessToken, onLogout }) {
           return room;
         }),
       );
-      sendReadReceipt(roomId);
       setStatusMessage(`채팅방 #${roomId}을 열었습니다. 최근 ${payloads.length}개의 메시지를 확인했습니다.`);
     } catch (error) {
       setStatusMessage(error.message);
     }
-  }, [getRoomToken, sendReadReceipt]);
+  }, [getRoomToken]);
 
   const handleSelectChatRoom = async (roomId) => {
     if (roomId === chatRoomId) {
